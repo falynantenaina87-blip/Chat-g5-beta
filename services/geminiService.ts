@@ -2,36 +2,50 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { QuizQuestion, Message, Fortune, MemoryPair } from "../types";
 
-// Initialisation via la clé d'environnement injectée par l'outil de build
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// --- GESTION CLÉ API ---
+const getApiKey = (): string => {
+  let key = '';
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+    // @ts-ignore
+    key = import.meta.env.VITE_API_KEY;
+  }
+  // @ts-ignore
+  if (!key && typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    // @ts-ignore
+    key = process.env.API_KEY;
+  }
+  return key;
+};
+
+const apiKey = getApiKey();
+// Initialisation de l'instance AI
+const ai = new GoogleGenAI({ apiKey: apiKey || "dummy_key" });
 
 const BASE_INSTRUCTION = `
-Tu es "G5-Tuteur", l'assistant pédagogique officiel du Groupe 5 - Licence 1 Chinois (Promotion 2025).
-MISSIONS :
-1. Aide aux devoirs, explication de points de grammaire (Le, Ba, Bei...), et vocabulaire HSK 1/2.
-2. Toujours fournir le Pinyin pour les nouveaux caractères.
-3. Refuser systématiquement les requêtes hors du cadre académique chinois.
-4. Ton : Formel, encourageant, expert en linguistique.
-5. Adapte-toi à l'utilisateur : Utilise le CONTEXTE ÉLÈVE ci-dessous pour personnaliser tes exemples.
+Tu es "G5-Tuteur", l'assistant pédagogique officiel du Groupe 5 - Licence 1 Chinois.
+Ton : Formel, encourageant, expert.
+Tâches : Aide devoirs, grammaire, vocabulaire.
 `;
 
 export const geminiService = {
-  // Chat principal avec mémoire injectée
-  async *streamChatResponse(prompt: string, history: Message[] = [], userMemory: string = "") {
-    try {
-      const dynamicInstruction = `
-      ${BASE_INSTRUCTION}
-      
-      === CONTEXTE ÉLÈVE (Mémoire Long Terme) ===
-      ${userMemory ? userMemory : "Nouvel étudiant, aucune donnée préalable."}
-      ============================================
-      `;
+  async *streamChatResponse(prompt: string, history: Message[] = [], userMemory: string = "", userName: string = "") {
+    if (!apiKey) {
+      yield "⚠️ Erreur : Clé API manquante. Ajoutez VITE_API_KEY dans votre fichier .env.";
+      return;
+    }
 
-      // Transformation de l'historique de l'app vers le format Gemini
-      const formattedHistory = history.map(msg => ({
+    try {
+      const historyFormatted = history.map(msg => ({
         role: msg.isAi ? 'model' : 'user',
         parts: [{ text: msg.text }]
       }));
+
+      // Logique spécifique pour le créateur
+      let dynamicInstruction = `${BASE_INSTRUCTION}\nContexte étudiant: ${userMemory}`;
+      if (userName && userName.toLowerCase() === 'juliano') {
+        dynamicInstruction += `\n\nIMPORTANT : L'utilisateur actuel est "Juliano". Tu dois t'adresser à lui en utilisant exclusivement le titre "cher créateur" (ou "mon cher créateur") au lieu de son pseudo. Sois particulièrement dévoué.`;
+      }
 
       const chat = ai.chats.create({
         model: 'gemini-3-flash-preview',
@@ -39,65 +53,41 @@ export const geminiService = {
           systemInstruction: dynamicInstruction,
           temperature: 0.6,
         },
-        history: formattedHistory
+        history: historyFormatted
       });
 
       const result = await chat.sendMessageStream({ message: prompt });
       for await (const chunk of result) {
         yield chunk.text || "";
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Gemini Error:", error);
-      yield "Désolé, une erreur de communication avec le serveur pédagogique est survenue.";
+      if (error.message?.includes("API key")) yield "Erreur: Clé API invalide.";
+      else if (error.message?.includes("429")) yield "Service saturé, réessayez dans 30s.";
+      else yield "Erreur de communication avec le serveur (Vérifiez votre connexion ou la clé API).";
     }
   },
 
-  // Fonction cognitive : Met à jour le profil de l'étudiant
-  async updateStudentProfile(oldMemory: string, lastUserMessage: string, lastAiResponse: string): Promise<string> {
+  // --- AUTRES FONCTIONS (Simplifiées pour éviter les crashs) ---
+
+  async updateStudentProfile(oldMem: string, userMsg: string, aiMsg: string): Promise<string> {
+    if (!apiKey) return oldMem;
     try {
-        const analysisPrompt = `
-        Tu es l'observateur pédagogique du système.
-        
-        ANCIEN PROFIL DE L'ÉTUDIANT : "${oldMemory}"
-        
-        DERNIER ÉCHANGE :
-        Étudiant : "${lastUserMessage}"
-        IA : "${lastAiResponse}"
-        
-        TÂCHE :
-        Mets à jour le profil de l'étudiant en 1 ou 2 phrases concises.
-        - Note les points grammaticaux mal compris (ex: confusion "le/de").
-        - Note les centres d'intérêt pour personnaliser les futurs exemples (ex: aime le foot, la cuisine).
-        - Note le ton préféré (ex: veut des réponses courtes).
-        - Garde l'historique pertinent, supprime l'obsolète.
-        
-        Si rien de notable, retourne l'ANCIEN PROFIL tel quel.
-        Ne sois pas bavard. Juste les faits bruts pour le système.
-        `;
-
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: analysisPrompt,
-            config: {
-                temperature: 0.3, // Bas pour être factuel
-                maxOutputTokens: 100
-            }
-        });
-
-        return response.text || oldMemory;
-    } catch (e) {
-        console.error("Memory Update Error", e);
-        return oldMemory;
-    }
+      const resp = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Analyse cet échange pour mettre à jour le profil étudiant (bref):\n${oldMem}\nÉtudiant: ${userMsg}\nIA: ${aiMsg}`,
+      });
+      return resp.text || oldMem;
+    } catch (e) { return oldMem; }
   },
 
   async generateQuiz(topic: string, count: number = 3): Promise<QuizQuestion[]> {
+    if (!apiKey) return [];
     try {
-      const response = await ai.models.generateContent({
+      const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Génère un quiz de ${count} questions pour un étudiant de L1 Chinois sur : ${topic}.`,
+        contents: `Génère ${count} questions QCM sur : ${topic}. Format JSON strict.`,
         config: {
-          systemInstruction: BASE_INSTRUCTION,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.ARRAY,
@@ -105,11 +95,7 @@ export const geminiService = {
               type: Type.OBJECT,
               properties: {
                 question: { type: Type.STRING },
-                options: { 
-                  type: Type.ARRAY, 
-                  items: { type: Type.STRING },
-                  minItems: 4, maxItems: 4
-                },
+                options: { type: Type.ARRAY, items: { type: Type.STRING } },
                 correctAnswer: { type: Type.INTEGER },
                 explanation: { type: Type.STRING }
               },
@@ -118,24 +104,17 @@ export const geminiService = {
           }
         }
       });
-      
-      const text = response.text || "[]";
-      const jsonStr = text.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-      
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      console.error("Quiz Error:", e);
-      return [];
-    }
+      return JSON.parse(resp.text || "[]");
+    } catch (e) { console.error(e); return []; }
   },
 
   async generateMemoryPairs(topic: string): Promise<MemoryPair[]> {
+    if (!apiKey) return [];
     try {
-      const response = await ai.models.generateContent({
+      const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Génère 6 paires de vocabulaire (Hanzi + Pinyin/Traduction) pour un jeu de mémoire sur le thème : ${topic}. Niveau HSK 1/2.`,
+        contents: `6 paires vocabulaire (Hanzi + Pinyin/Trad) sur : ${topic}. JSON strict.`,
         config: {
-          systemInstruction: BASE_INSTRUCTION,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.ARRAY,
@@ -152,82 +131,46 @@ export const geminiService = {
           }
         }
       });
-      
-      const text = response.text || "[]";
-      const jsonStr = text.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      console.error("Memory Game Error:", e);
-      return [];
-    }
+      return JSON.parse(resp.text || "[]");
+    } catch (e) { return []; }
   },
 
   async generateAnnouncementImage(title: string, content: string): Promise<string | null> {
+    if (!apiKey) return null;
     try {
-      const prompt = `A modern, clean, academic digital illustration suitable for a university announcement board. 
-      Subject: ${title}. Context: ${content}. 
-      Style: Minimalist vector art, educational, university vibes. No text in the image.`;
-
-      const response = await ai.models.generateContent({
+      const resp = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [
-            { text: prompt },
-          ],
-        },
-        config: {
-          imageConfig: {
-             aspectRatio: "16:9" 
-          }
-        }
+        contents: { parts: [{ text: `Illustration for: ${title}. ${content}` }] },
+        config: { imageConfig: { aspectRatio: "16:9" } }
       });
-
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          const base64EncodeString: string = part.inlineData.data;
-          return `data:image/png;base64,${base64EncodeString}`;
-        }
-      }
-      return null;
-    } catch (e) {
-      console.error("Image Gen Error:", e);
-      return null;
-    }
+      // @ts-ignore
+      const data = resp.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      return data ? `data:image/png;base64,${data}` : null;
+    } catch (e) { return null; }
   },
 
   async generateFortune(): Promise<Fortune | null> {
+    if (!apiKey) return null;
     try {
-      const response = await ai.models.generateContent({
+      const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: "Génère un 'Fortune Cookie' pour un étudiant en chinois.",
+        contents: "Fortune cookie chinois. JSON strict.",
         config: {
-          systemInstruction: `Tu es un biscuit de la chance mystique mais humoristique pour des étudiants en langue.
-          Génère :
-          1. Un Chengyu (idiome 4 caractères) aléatoire motivant ou drôle.
-          2. Son Pinyin.
-          3. Sa traduction française.
-          4. Un conseil "Horoscope étudiant" drôle (ex: "Attention aux particules 'le' aujourd'hui").
-          5. Une couleur porte-bonheur.`,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              chengyu: { type: Type.STRING },
-              pinyin: { type: Type.STRING },
-              translation: { type: Type.STRING },
-              advice: { type: Type.STRING },
-              luckyColor: { type: Type.STRING }
-            },
-            required: ["chengyu", "pinyin", "translation", "advice", "luckyColor"]
-          }
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                chengyu: { type: Type.STRING },
+                pinyin: { type: Type.STRING },
+                translation: { type: Type.STRING },
+                advice: { type: Type.STRING },
+                luckyColor: { type: Type.STRING }
+              },
+              required: ["chengyu", "pinyin", "translation", "advice", "luckyColor"]
+            }
         }
       });
-
-      const text = response.text || "{}";
-      return JSON.parse(text);
-    } catch (e) {
-      console.error("Fortune Error:", e);
-      return null;
-    }
+      return JSON.parse(resp.text || "{}");
+    } catch (e) { return null; }
   }
 };

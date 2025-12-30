@@ -8,124 +8,153 @@ import {
   orderBy, 
   deleteDoc, 
   doc,
-  Timestamp,
   getDocs,
   limit,
   setDoc,
   getDoc,
-  updateDoc
+  updateDoc,
+  where
 } from "firebase/firestore";
 import { Message, NewsItem, Resource, Delegate, User } from "../types";
 
-// --- HELPERS LOCAL STORAGE (FALLBACK ISOLÉ) ---
-const STORAGE_KEYS = {
-  NEWS: 'g5_news_v1',
-  RESOURCES: 'g5_resources_v1',
-  MESSAGES_PUBLIC: 'g5_messages_public_v1',
-  MESSAGES_PRIVATE: 'g5_messages_private_v1',
-  DELEGATES: 'g5_delegates_v1',
-  SCHEDULE: 'g5_schedule_v1',
-  USERS: 'g5_users_directory_v1' // Nouveau pour simuler l'unicité en local
-};
+// --- GESTIONNAIRE D'ÉTAT LOCAL (CACHE MÉMOIRE) ---
+// Remplace les événements window/localStorage pour une réactivité instantanée
+class LocalStore {
+  private subscribers: Record<string, Function[]> = {};
+  private data: Record<string, any> = {};
 
-const INITIAL_NEWS: NewsItem[] = [];
-const INITIAL_RESOURCES: Resource[] = [
-  { id: 'r1', title: 'Grammaire Chinoise L1', category: 'cours', type: 'PDF', size: '2.4 MB', date: Date.now() - 172800000, author: 'Prof. Wei', url: '#' },
-];
-const INITIAL_DELEGATES: Delegate[] = [
-  { id: 'd1', name: 'Sophie L.', role: 'Déléguée', avatar: '👩‍🎓' },
-  { id: 'd2', name: 'Marc D.', role: 'Suppléant', avatar: '👨‍🎓' }
-];
+  constructor() {
+    // Chargement initial depuis le localStorage pour la persistance
+    this.loadFromDisk();
+  }
 
-// Récupère une clé spécifique à l'utilisateur si uid est fourni
-const getStorageKey = (baseKey: string, uid?: string) => {
-  return uid ? `${baseKey}_${uid}` : baseKey;
-};
+  private loadFromDisk() {
+    try {
+      const raw = localStorage.getItem('g5_local_db_v2');
+      if (raw) this.data = JSON.parse(raw);
+    } catch (e) {
+      this.data = {};
+    }
+  }
 
-const getLocal = <T>(key: string, initial: T, uid?: string): T => {
-  const finalKey = getStorageKey(key, uid);
-  const stored = localStorage.getItem(finalKey);
-  return stored ? JSON.parse(stored) : initial;
-};
+  private saveToDisk() {
+    try {
+      localStorage.setItem('g5_local_db_v2', JSON.stringify(this.data));
+    } catch (e) {
+      console.error("Save error", e);
+    }
+  }
 
-const setLocal = <T>(key: string, data: T, uid?: string) => {
-  const finalKey = getStorageKey(key, uid);
-  localStorage.setItem(finalKey, JSON.stringify(data));
-};
+  // Souscription aux changements (Observer Pattern)
+  subscribe(key: string, callback: Function) {
+    if (!this.subscribers[key]) this.subscribers[key] = [];
+    this.subscribers[key].push(callback);
+    // Appel immédiat avec les données actuelles
+    callback(this.get(key));
+    return () => {
+      this.subscribers[key] = this.subscribers[key].filter(cb => cb !== callback);
+    };
+  }
 
-// --- SERVICE UNIFIÉ ---
+  get(key: string, defaultVal: any = []) {
+    return this.data[key] || defaultVal;
+  }
+
+  set(key: string, value: any) {
+    this.data[key] = value;
+    this.saveToDisk();
+    this.notify(key);
+  }
+
+  update(key: string, updateFn: (current: any) => any) {
+    const current = this.get(key);
+    const updated = updateFn(current);
+    this.set(key, updated);
+  }
+
+  private notify(key: string) {
+    if (this.subscribers[key]) {
+      const val = this.get(key);
+      this.subscribers[key].forEach(cb => cb(val));
+    }
+  }
+
+  clear() {
+    this.data = {};
+    this.saveToDisk();
+    Object.keys(this.subscribers).forEach(key => this.notify(key));
+  }
+}
+
+const localStore = new LocalStore();
+
+// Générateur d'ID simple et robuste
+const generateId = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 export const dbService = {
   // --- GESTION UTILISATEURS (AUTH) ---
   getOrCreateUser: async (pseudo: string, role: 'student' | 'admin', avatar: string, pin: string): Promise<User> => {
-    // ID technique basé sur le pseudo pour garantir l'unicité (ex: "thomas_g")
     const userId = pseudo.toLowerCase().trim().replace(/[^a-z0-9]/g, '_');
     
+    // Mode Firebase
     if (db) {
       const userRef = doc(db, "users", userId);
       const userSnap = await getDoc(userRef);
 
       if (userSnap.exists()) {
         const existingUser = userSnap.data() as User;
+        if (existingUser.pin && existingUser.pin !== pin) throw new Error("Code PIN incorrect.");
         
-        // VÉRIFICATION DU PIN
-        if (existingUser.pin && existingUser.pin !== pin) {
-          throw new Error("Code PIN incorrect pour ce pseudo.");
-        }
-
-        // Mise à jour du rôle si l'utilisateur se connecte avec le code Admin
+        // Vérification promotion Admin
         if (existingUser.role !== 'admin' && role === 'admin') {
+           const adminQuery = query(collection(db, "users"), where("role", "==", "admin"));
+           const adminSnap = await getDocs(adminQuery);
+           if (adminSnap.size >= 3) throw new Error("Limite d'administrateurs atteinte (Max 3).");
+
            await updateDoc(userRef, { role: 'admin', avatar: avatar });
            return { ...existingUser, role: 'admin', avatar: avatar };
         }
         return existingUser;
       } else {
-        // Création nouvel utilisateur
-        const newUser: User = {
-          uid: userId,
-          name: pseudo.trim(),
-          email: `${userId}@student.g5`,
-          avatar: role === 'admin' ? "🛡️" : avatar,
-          role: role,
-          pin: pin, // Enregistrement du PIN
-          aiMemory: "" // Initialisation mémoire vide
-        };
+        // Vérification nouvel Admin
+        if (role === 'admin') {
+           const adminQuery = query(collection(db, "users"), where("role", "==", "admin"));
+           const adminSnap = await getDocs(adminQuery);
+           if (adminSnap.size >= 3) throw new Error("Limite d'administrateurs atteinte (Max 3).");
+        }
+
+        const newUser: User = { uid: userId, name: pseudo.trim(), email: `${userId}@student.g5`, avatar: role === 'admin' ? "🛡️" : avatar, role: role, pin: pin, aiMemory: "" };
         await setDoc(userRef, newUser);
         return newUser;
       }
-    } else {
-      // Fallback LocalStorage
-      const usersMap = getLocal<Record<string, User>>(STORAGE_KEYS.USERS, {});
-      
-      if (usersMap[userId]) {
-        const existingUser = usersMap[userId];
-        
-        // VÉRIFICATION DU PIN LOCAL
-        if (existingUser.pin && existingUser.pin !== pin) {
-          throw new Error("Code PIN incorrect pour ce pseudo.");
-        }
+    } 
+    
+    // Mode Local (Utilisation du Store Mémoire)
+    const usersMap = localStore.get('users', {});
+    const existingUser = usersMap[userId];
 
-        if (existingUser.role !== 'admin' && role === 'admin') {
-          existingUser.role = 'admin';
-          existingUser.avatar = avatar;
-          usersMap[userId] = existingUser;
-          setLocal(STORAGE_KEYS.USERS, usersMap);
-        }
-        return existingUser;
-      } else {
-        const newUser: User = {
-          uid: userId,
-          name: pseudo.trim(),
-          email: `${userId}@student.g5`,
-          avatar: role === 'admin' ? "🛡️" : avatar,
-          role: role,
-          pin: pin,
-          aiMemory: ""
-        };
-        usersMap[userId] = newUser;
-        setLocal(STORAGE_KEYS.USERS, usersMap);
-        return newUser;
+    if (existingUser) {
+      if (existingUser.pin && existingUser.pin !== pin) throw new Error("Code PIN incorrect.");
+      
+      if (existingUser.role !== 'admin' && role === 'admin') {
+        const adminCount = Object.values(usersMap).filter((u: any) => u.role === 'admin').length;
+        if (adminCount >= 3) throw new Error("Limite d'administrateurs atteinte (Max 3).");
+
+        existingUser.role = 'admin'; existingUser.avatar = avatar; 
+        usersMap[userId] = existingUser; 
+        localStore.set('users', usersMap);
       }
+      return existingUser;
+    } else {
+      if (role === 'admin') {
+        const adminCount = Object.values(usersMap).filter((u: any) => u.role === 'admin').length;
+        if (adminCount >= 3) throw new Error("Limite d'administrateurs atteinte (Max 3).");
+      }
+
+      const newUser: User = { uid: userId, name: pseudo.trim(), email: `${userId}@student.g5`, avatar: role === 'admin' ? "🛡️" : avatar, role: role, pin: pin, aiMemory: "" };
+      usersMap[userId] = newUser; 
+      localStore.set('users', usersMap);
+      return newUser;
     }
   },
 
@@ -134,98 +163,59 @@ export const dbService = {
       const q = query(collection(db, "users"), orderBy("name", "asc"));
       const snapshot = await getDocs(q);
       return snapshot.docs.map(doc => doc.data() as User);
-    } else {
-      const usersMap = getLocal<Record<string, User>>(STORAGE_KEYS.USERS, {});
-      return Object.values(usersMap).sort((a, b) => a.name.localeCompare(b.name));
     }
+    const usersMap = localStore.get('users', {});
+    return Object.values(usersMap) as User[];
   },
 
-  // --- MEMOIRE IA ---
   updateUserAiMemory: async (userId: string, newMemory: string) => {
     if (db) {
       const userRef = doc(db, "users", userId);
       await updateDoc(userRef, { aiMemory: newMemory });
     } else {
-      const usersMap = getLocal<Record<string, User>>(STORAGE_KEYS.USERS, {});
+      const usersMap = localStore.get('users', {});
       if (usersMap[userId]) {
         usersMap[userId].aiMemory = newMemory;
-        setLocal(STORAGE_KEYS.USERS, usersMap);
+        localStore.set('users', usersMap);
       }
     }
   },
 
-  // --- MESSAGERIE PUBLIQUE (GROUPE) ---
+  updateUserAvatar: async (userId: string, newAvatar: string) => {
+    if (db) {
+      const userRef = doc(db, "users", userId);
+      await updateDoc(userRef, { avatar: newAvatar });
+    } else {
+      const usersMap = localStore.get('users', {});
+      if (usersMap[userId]) {
+        usersMap[userId].avatar = newAvatar;
+        localStore.set('users', usersMap);
+      }
+    }
+  },
+
+  // --- MESSAGERIE PUBLIQUE ---
   subscribeToPublicMessages: (callback: (msgs: Message[]) => void) => {
     if (db) {
       const q = query(collection(db, "messages"), orderBy("timestamp", "asc"), limit(100));
-      return onSnapshot(q, (snapshot) => {
-        const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-        callback(msgs);
-      }, (error) => console.error("Firestore Public Chat Error:", error));
-    } else {
-      const msgs = getLocal<Message[]>(STORAGE_KEYS.MESSAGES_PUBLIC, []);
-      callback(msgs);
-      return () => {};
+      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message))));
     }
+    // Souscription instantanée mémoire
+    return localStore.subscribe('public_messages', callback);
   },
 
   addPublicMessage: async (msg: Omit<Message, 'id'>) => {
     if (db) {
       await addDoc(collection(db, "messages"), msg);
     } else {
-      const msgs = getLocal<Message[]>(STORAGE_KEYS.MESSAGES_PUBLIC, []);
-      const newMsg = { ...msg, id: crypto.randomUUID() };
-      setLocal(STORAGE_KEYS.MESSAGES_PUBLIC, [...msgs, newMsg]);
-      window.dispatchEvent(new Event('local-storage-update-public'));
-    }
-  },
-
-  // --- MESSAGERIE PRIVÉE (TUTEUR IA) ---
-  subscribeToPrivateMessages: (userId: string, callback: (msgs: Message[]) => void) => {
-    if (db) {
-      const q = query(collection(db, `users/${userId}/private_chat`), orderBy("timestamp", "asc"));
-      return onSnapshot(q, (snapshot) => {
-        const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-        callback(msgs);
-      }, (error) => console.error("Firestore Private Chat Error:", error));
-    } else {
-      const msgs = getLocal<Message[]>(STORAGE_KEYS.MESSAGES_PRIVATE, [], userId);
-      callback(msgs);
-      return () => {};
-    }
-  },
-
-  addPrivateMessage: async (userId: string, msg: Omit<Message, 'id'>) => {
-    if (db) {
-      await addDoc(collection(db, `users/${userId}/private_chat`), msg);
-    } else {
-      const msgs = getLocal<Message[]>(STORAGE_KEYS.MESSAGES_PRIVATE, [], userId);
-      const newMsg = { ...msg, id: crypto.randomUUID() };
-      setLocal(STORAGE_KEYS.MESSAGES_PRIVATE, [...msgs, newMsg], userId);
-      window.dispatchEvent(new CustomEvent('local-storage-update-private', { detail: { userId } }));
-    }
-  },
-
-  clearPrivateMessages: async (userId: string) => {
-    if (db) {
-      const q = query(collection(db, `users/${userId}/private_chat`));
-      const snapshot = await getDocs(q);
-      const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
-      await Promise.all(deletePromises);
-    } else {
-      setLocal(STORAGE_KEYS.MESSAGES_PRIVATE, [], userId);
-      window.dispatchEvent(new CustomEvent('local-storage-update-private', { detail: { userId } }));
+      const newMsg = { ...msg, id: generateId() };
+      localStore.update('public_messages', (msgs: Message[] = []) => [...msgs, newMsg]);
     }
   },
 
   deletePublicMessage: async (id: string) => {
-    if (db) {
-      await deleteDoc(doc(db, "messages", id));
-    } else {
-      const msgs = getLocal<Message[]>(STORAGE_KEYS.MESSAGES_PUBLIC, []);
-      setLocal(STORAGE_KEYS.MESSAGES_PUBLIC, msgs.filter(m => m.id !== id));
-      window.dispatchEvent(new Event('local-storage-update-public'));
-    }
+    if (db) await deleteDoc(doc(db, "messages", id));
+    else localStore.update('public_messages', (msgs: Message[] = []) => msgs.filter(m => m.id !== id));
   },
   
   clearPublicMessages: async () => {
@@ -234,140 +224,126 @@ export const dbService = {
        const snapshot = await getDocs(q);
        snapshot.forEach(d => deleteDoc(d.ref));
     } else {
-      setLocal(STORAGE_KEYS.MESSAGES_PUBLIC, []);
-      window.dispatchEvent(new Event('local-storage-update-public'));
+      localStore.set('public_messages', []);
     }
   },
 
-  // --- ACTUALITÉS (GLOBAL) ---
+  // --- MESSAGERIE PRIVÉE ---
+  subscribeToPrivateMessages: (userId: string, callback: (msgs: Message[]) => void) => {
+    if (db) {
+      const q = query(collection(db, `users/${userId}/private_chat`), orderBy("timestamp", "asc"));
+      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message))));
+    }
+    return localStore.subscribe(`private_chat_${userId}`, callback);
+  },
+
+  addPrivateMessage: async (userId: string, msg: Omit<Message, 'id'>) => {
+    if (db) {
+      await addDoc(collection(db, `users/${userId}/private_chat`), msg);
+    } else {
+      const newMsg = { ...msg, id: generateId() };
+      localStore.update(`private_chat_${userId}`, (msgs: Message[] = []) => [...msgs, newMsg]);
+    }
+  },
+
+  clearPrivateMessages: async (userId: string) => {
+    if (db) {
+      const q = query(collection(db, `users/${userId}/private_chat`));
+      const snapshot = await getDocs(q);
+      snapshot.forEach(d => deleteDoc(d.ref));
+    } else {
+      localStore.set(`private_chat_${userId}`, []);
+    }
+  },
+
+  // --- ACTUALITÉS ---
   subscribeToNews: (callback: (news: NewsItem[]) => void) => {
     if (db) {
       const q = query(collection(db, "news"), orderBy("date", "desc"));
-      return onSnapshot(q, (snapshot) => {
-        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem));
-        callback(items);
-      });
-    } else {
-      callback(getLocal<NewsItem[]>(STORAGE_KEYS.NEWS, INITIAL_NEWS));
-      return () => {};
+      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsItem))));
     }
+    return localStore.subscribe('news', callback);
   },
 
   addNews: async (item: Omit<NewsItem, 'id'>) => {
-    if (db) {
-      await addDoc(collection(db, "news"), item);
-    } else {
-      const items = getLocal<NewsItem[]>(STORAGE_KEYS.NEWS, INITIAL_NEWS);
-      const newItem = { ...item, id: crypto.randomUUID() };
-      setLocal(STORAGE_KEYS.NEWS, [newItem, ...items]);
-    }
+    if (db) await addDoc(collection(db, "news"), item);
+    else localStore.update('news', (items: NewsItem[] = []) => [{...item, id: generateId()}, ...items]);
   },
 
   deleteNews: async (id: string) => {
-    if (db) {
-      await deleteDoc(doc(db, "news", id));
-    } else {
-      const items = getLocal<NewsItem[]>(STORAGE_KEYS.NEWS, INITIAL_NEWS);
-      setLocal(STORAGE_KEYS.NEWS, items.filter(i => i.id !== id));
-    }
+    if (db) await deleteDoc(doc(db, "news", id));
+    else localStore.update('news', (items: NewsItem[] = []) => items.filter(i => i.id !== id));
   },
 
-  // --- RESSOURCES (GLOBAL) ---
+  // --- RESSOURCES ---
   subscribeToResources: (callback: (resources: Resource[]) => void) => {
     if (db) {
       const q = query(collection(db, "resources"), orderBy("date", "desc"));
-      return onSnapshot(q, (snapshot) => {
-        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Resource));
-        callback(items);
-      });
-    } else {
-      callback(getLocal<Resource[]>(STORAGE_KEYS.RESOURCES, INITIAL_RESOURCES));
-      return () => {};
+      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Resource))));
     }
+    // Données initiales si vide
+    const initialResources = [
+       { id: 'r1', title: 'Grammaire Chinoise L1', category: 'cours', type: 'PDF', size: '2.4 MB', date: Date.now() - 172800000, author: 'Prof. Wei', url: '#' },
+    ];
+    if (localStore.get('resources').length === 0) localStore.set('resources', initialResources);
+    
+    return localStore.subscribe('resources', callback);
   },
   
   addResource: async (item: Omit<Resource, 'id'>) => {
-     if (db) {
-        await addDoc(collection(db, "resources"), item);
-     } else {
-        const items = getLocal<Resource[]>(STORAGE_KEYS.RESOURCES, INITIAL_RESOURCES);
-        const newItem = { ...item, id: crypto.randomUUID() };
-        setLocal(STORAGE_KEYS.RESOURCES, [newItem, ...items]);
-        window.dispatchEvent(new Event('local-storage-update-resources'));
-     }
+     if (db) await addDoc(collection(db, "resources"), item);
+     else localStore.update('resources', (items: Resource[] = []) => [{...item, id: generateId()}, ...items]);
   },
 
   deleteResource: async (id: string) => {
-    if (db) {
-      await deleteDoc(doc(db, "resources", id));
-    } else {
-      const items = getLocal<Resource[]>(STORAGE_KEYS.RESOURCES, INITIAL_RESOURCES);
-      setLocal(STORAGE_KEYS.RESOURCES, items.filter(r => r.id !== id));
-      window.dispatchEvent(new Event('local-storage-update-resources'));
-    }
+    if (db) await deleteDoc(doc(db, "resources", id));
+    else localStore.update('resources', (items: Resource[] = []) => items.filter(r => r.id !== id));
   },
 
   // --- DÉLÉGUÉS ---
   subscribeToDelegates: (callback: (delegates: Delegate[]) => void) => {
     if (db) {
       const q = query(collection(db, "delegates"));
-      return onSnapshot(q, (snapshot) => {
-        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Delegate));
-        callback(items);
-      });
-    } else {
-      callback(getLocal<Delegate[]>(STORAGE_KEYS.DELEGATES, INITIAL_DELEGATES));
-      return () => {};
+      return onSnapshot(q, (snapshot) => callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Delegate))));
     }
+     const initialDelegates = [
+      { id: 'd1', name: 'Sophie L.', role: 'Déléguée', avatar: '👩‍🎓' },
+      { id: 'd2', name: 'Marc D.', role: 'Suppléant', avatar: '👨‍🎓' }
+    ];
+    if (localStore.get('delegates').length === 0) localStore.set('delegates', initialDelegates);
+    return localStore.subscribe('delegates', callback);
   },
 
   addDelegate: async (delegate: Omit<Delegate, 'id'>) => {
-    if (db) {
-      await addDoc(collection(db, "delegates"), delegate);
-    } else {
-      const items = getLocal<Delegate[]>(STORAGE_KEYS.DELEGATES, INITIAL_DELEGATES);
-      const newItem = { ...delegate, id: crypto.randomUUID() };
-      setLocal(STORAGE_KEYS.DELEGATES, [...items, newItem]);
-    }
+    if (db) await addDoc(collection(db, "delegates"), delegate);
+    else localStore.update('delegates', (items: Delegate[] = []) => [...items, {...delegate, id: generateId()}]);
   },
 
   deleteDelegate: async (id: string) => {
-    if (db) {
-      await deleteDoc(doc(db, "delegates", id));
-    } else {
-      const items = getLocal<Delegate[]>(STORAGE_KEYS.DELEGATES, INITIAL_DELEGATES);
-      setLocal(STORAGE_KEYS.DELEGATES, items.filter(d => d.id !== id));
-    }
+    if (db) await deleteDoc(doc(db, "delegates", id));
+    else localStore.update('delegates', (items: Delegate[] = []) => items.filter(d => d.id !== id));
   },
 
-  // --- EMPLOI DU TEMPS (SETTINGS) ---
+  // --- SETTINGS ---
   getScheduleImage: async (): Promise<string | null> => {
      if (db) {
-       try {
-         const d = await getDoc(doc(db, "settings", "schedule"));
-         if (d.exists()) return d.data().imageUrl;
-       } catch (e) { return null; }
+       try { const d = await getDoc(doc(db, "settings", "schedule")); if (d.exists()) return d.data().imageUrl; } catch (e) { return null; }
        return null;
-     } else {
-       return localStorage.getItem(STORAGE_KEYS.SCHEDULE);
-     }
+     } 
+     return localStore.get('schedule', null);
   },
 
   saveScheduleImage: async (imageUrl: string) => {
-    if (db) {
-      await setDoc(doc(db, "settings", "schedule"), { imageUrl });
-    } else {
-      localStorage.setItem(STORAGE_KEYS.SCHEDULE, imageUrl);
-    }
+    if (db) await setDoc(doc(db, "settings", "schedule"), { imageUrl });
+    else localStore.set('schedule', imageUrl);
   },
 
-  // --- GLOBAL ---
   isFirebaseActive: () => !!db,
   
   fullReset: async (userId?: string) => {
-    localStorage.clear();
+    localStore.clear();
+    localStorage.clear(); // Nettoyage total
     if (db && userId) {
-       console.log("Reset Firebase: Suppression chat privé.");
        const q = query(collection(db, `users/${userId}/private_chat`));
        const snapshot = await getDocs(q);
        snapshot.forEach(d => deleteDoc(d.ref));

@@ -35,7 +35,8 @@ import {
   ListChecks,
   Timer,
   Menu,
-  MoreHorizontal
+  MoreHorizontal,
+  Camera
 } from 'lucide-react';
 import { AppTab, User, Message, QuizQuestion, NewsItem, Resource, Delegate, Fortune, MemoryPair } from './types';
 import { geminiService } from './services/geminiService';
@@ -43,6 +44,27 @@ import { dbService } from './services/db';
 
 const INVITATION_CODE = "G5L1-2025-CHINE-X";
 const ADMIN_CODE = "ADMIN-G5-MASTER";
+
+// Composant Helper pour afficher l'avatar (Image ou Emoji)
+const UserAvatar = ({ avatar, className = "", size = "md" }: { avatar: string, className?: string, size?: "sm" | "md" | "lg" | "xl" }) => {
+  const isImage = avatar.startsWith("data:") || avatar.startsWith("http");
+  
+  return (
+    <div className={`rounded-full flex items-center justify-center overflow-hidden shrink-0 border border-white/10 shadow-inner bg-gradient-to-br from-slate-800 to-black ${className}`} 
+      style={{
+        width: size === 'sm' ? '2rem' : size === 'md' ? '3rem' : size === 'lg' ? '5rem' : '8rem',
+        height: size === 'sm' ? '2rem' : size === 'md' ? '3rem' : size === 'lg' ? '5rem' : '8rem',
+        fontSize: size === 'sm' ? '1rem' : size === 'md' ? '1.5rem' : size === 'lg' ? '2.5rem' : '4rem'
+      }}
+    >
+      {isImage ? (
+        <img src={avatar} alt="User" className="w-full h-full object-cover" />
+      ) : (
+        <span>{avatar}</span>
+      )}
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -100,12 +122,23 @@ const App: React.FC = () => {
       console.error(err);
       if (err.message.includes("Code PIN")) {
         setAuthError("Ce pseudo existe déjà avec un autre code PIN.");
+      } else if (err.message.includes("Limite")) {
+        setAuthError(err.message);
       } else {
         setAuthError("Erreur de connexion serveur. Réessayez.");
       }
     } finally {
       setIsLoggingIn(false);
     }
+  };
+
+  const updateProfileAvatar = async (newAvatar: string) => {
+     if(user) {
+        await dbService.updateUserAvatar(user.uid, newAvatar);
+        const updatedUser = { ...user, avatar: newAvatar };
+        setUser(updatedUser);
+        localStorage.setItem('g5_session_v1', JSON.stringify(updatedUser));
+     }
   };
 
   const resetAllData = async () => {
@@ -191,9 +224,7 @@ const App: React.FC = () => {
     <div className="min-h-screen pb-32 max-w-2xl mx-auto relative">
       <header className="sticky top-0 z-40 glass-dark px-6 py-4 flex justify-between items-center border-b border-white/5 backdrop-blur-xl">
         <div className="flex items-center gap-3">
-             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-800 to-black border border-white/10 flex items-center justify-center text-lg shadow-inner">
-                {user.avatar}
-             </div>
+             <UserAvatar avatar={user.avatar} size="sm" />
              <div>
                  <h2 className="text-sm font-bold text-white tracking-wide leading-none">{user.name}</h2>
                  <div className="flex items-center gap-1.5 mt-0.5">
@@ -226,7 +257,7 @@ const App: React.FC = () => {
         {activeTab === AppTab.CHAT && <ChatView currentUser={user} onMemoryUpdate={(mem) => { const u = {...user, aiMemory: mem}; setUser(u); localStorage.setItem('g5_session_v1', JSON.stringify(u)); }} />}
         {activeTab === AppTab.FILES && <FilesView user={user} />}
         {activeTab === AppTab.QUIZ && <QuizView />}
-        {activeTab === AppTab.PROFILE && <ProfileView user={user} onLogout={() => { setUser(null); localStorage.removeItem('g5_session_v1'); }} onReset={resetAllData} />}
+        {activeTab === AppTab.PROFILE && <ProfileView user={user} onUpdateAvatar={updateProfileAvatar} onLogout={() => { setUser(null); localStorage.removeItem('g5_session_v1'); }} onReset={resetAllData} />}
       </main>
 
       {/* FLOATING DOCK NAVIGATION */}
@@ -367,7 +398,7 @@ const DashboardView = ({ user }: { user: User }) => {
      await dbService.addDelegate({
        name: candidate.name,
        role: role,
-       avatar: role === 'Suppléant' ? '👨‍🎓' : '👩‍🎓'
+       avatar: candidate.avatar
      });
      setShowDelegateModal(false);
   };
@@ -392,7 +423,7 @@ const DashboardView = ({ user }: { user: User }) => {
               {candidateUsers.map(u => (
                 <div key={u.uid} className="glass p-3 rounded-2xl flex items-center justify-between">
                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">{u.avatar}</div>
+                      <UserAvatar avatar={u.avatar} size="sm" className="rounded-lg" />
                       <p className="text-xs font-bold text-slate-200">{u.name}</p>
                    </div>
                    <div className="flex gap-1">
@@ -565,7 +596,7 @@ const DashboardView = ({ user }: { user: User }) => {
           {delegates.map((d) => (
             <div key={d.id} className="glass p-4 rounded-3xl flex items-center gap-4 border border-white/5 hover:bg-white/5 transition-all relative group">
               {isAdmin && <button onClick={() => deleteDelegate(d.id)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-400"><Trash2 size={12} /></button>}
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-slate-800 to-black flex items-center justify-center text-xl shadow-inner border border-white/5">{d.avatar}</div>
+              <UserAvatar avatar={d.avatar} size="md" className="rounded-2xl border-white/5" />
               <div>
                 <p className="text-xs font-bold text-white truncate">{d.name}</p>
                 <p className="text-[9px] text-purple-400 font-bold uppercase tracking-tight opacity-70">{d.role}</p>
@@ -619,7 +650,8 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
         setIsTyping(true);
         try {
            let fullResponse = "";
-           const stream = geminiService.streamChatResponse(text, messages, currentUser.aiMemory);
+           // MODIFICATION : On passe currentUser.name pour l'instruction spécifique "cher créateur"
+           const stream = geminiService.streamChatResponse(text, messages, currentUser.aiMemory, currentUser.name);
            for await (const chunk of stream) fullResponse += chunk;
            await dbService.addPrivateMessage(currentUser.uid, { senderId: 'ai-tutor', senderName: 'G5-Tuteur', senderAvatar: '🤖', text: fullResponse, timestamp: Date.now(), isAi: true });
            geminiService.updateStudentProfile(currentUser.aiMemory || "", text, fullResponse).then(async (newMemory) => {
@@ -627,6 +659,14 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
            });
         } catch (err) { console.error(err); } finally { setIsTyping(false); }
      }
+  };
+
+  const deleteMessage = async (msgId: string) => {
+      if(window.confirm("Supprimer ce message pour tout le monde ?")) {
+          if (mode === 'public') await dbService.deletePublicMessage(msgId);
+          // Pour le privé, on permet aussi la suppression, bien que techniquement moins critique pour "tout le monde"
+          else await dbService.clearPrivateMessages(currentUser.uid); // Simplification: le chat privé est souvent nettoyé en bloc, mais ici on pourrait implémenter une suppression unitaire si besoin.
+      }
   };
 
   return (
@@ -644,21 +684,33 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
        )}
 
        <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
-          {messages.map((m) => (
-             <div key={m.id} className={`flex gap-4 ${m.senderId === currentUser.uid ? 'flex-row-reverse' : ''} animate-fade-in`}>
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm border shrink-0 shadow-lg ${m.isAi ? 'bg-emerald-900/50 border-emerald-500/30 text-2xl' : 'bg-slate-900 border-white/10'}`}>
-                   {m.senderAvatar}
-                </div>
-                <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed shadow-lg backdrop-blur-sm ${
-                   m.senderId === currentUser.uid ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-tr-sm border border-blue-500/50' : 
-                   m.isAi ? 'bg-slate-900/80 border border-emerald-500/20 text-emerald-50 rounded-tl-sm' : 
-                   'bg-slate-900/80 border border-white/10 text-slate-200 rounded-tl-sm'
-                }`}>
-                   {!m.isAi && m.senderId !== currentUser.uid && <p className="text-[9px] font-bold opacity-50 mb-1 uppercase tracking-wider">{m.senderName}</p>}
-                   <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert prose-p:my-1 prose-headings:text-emerald-400 prose-strong:text-white prose-sm max-w-none">{m.text}</ReactMarkdown>
+          {messages.map((m) => {
+             const isOwn = m.senderId === currentUser.uid;
+             return (
+             <div key={m.id} className={`flex gap-4 ${isOwn ? 'flex-row-reverse' : ''} animate-fade-in group`}>
+                <UserAvatar avatar={m.senderAvatar} className={`shrink-0 ${m.isAi ? 'border-emerald-500/30' : 'border-white/10'}`} size="md" />
+                <div className="relative max-w-[80%]">
+                    <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-lg backdrop-blur-sm ${
+                        isOwn ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-tr-sm border border-blue-500/50' : 
+                        m.isAi ? 'bg-slate-900/80 border border-emerald-500/20 text-emerald-50 rounded-tl-sm' : 
+                        'bg-slate-900/80 border border-white/10 text-slate-200 rounded-tl-sm'
+                        }`}>
+                        {!m.isAi && !isOwn && <p className="text-[9px] font-bold opacity-50 mb-1 uppercase tracking-wider">{m.senderName}</p>}
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert prose-p:my-1 prose-headings:text-emerald-400 prose-strong:text-white prose-sm max-w-none">{m.text}</ReactMarkdown>
+                    </div>
+                    {/* Bouton de suppression pour ses propres messages */}
+                    {isOwn && !m.isAi && mode === 'public' && (
+                        <button 
+                            onClick={() => deleteMessage(m.id)}
+                            className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 bg-red-500/10 text-red-400 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:text-white"
+                            title="Supprimer pour tout le monde"
+                        >
+                            <Trash2 size={12} />
+                        </button>
+                    )}
                 </div>
              </div>
-          ))}
+          )})}
           {isTyping && (
              <div className="flex gap-4">
                 <div className="w-8 h-8 rounded-xl bg-emerald-900/50 flex items-center justify-center text-lg border border-emerald-500/30">🤖</div>
@@ -985,13 +1037,39 @@ const QuizView = () => {
   );
 };
 
-const ProfileView = ({ user, onLogout, onReset }: { user: User, onLogout: () => void, onReset: () => void }) => {
+const ProfileView = ({ user, onLogout, onUpdateAvatar, onReset }: { user: User, onLogout: () => void, onUpdateAvatar: (url: string) => void, onReset: () => void }) => {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if(file.size > 2000000) {
+         alert("Image trop lourde (Max 2MB)");
+         return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+         const result = reader.result as string;
+         onUpdateAvatar(result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-fade-in pt-6">
        <div className="text-center relative">
-          <div className="w-28 h-28 bg-gradient-to-br from-slate-800 to-black rounded-[2rem] flex items-center justify-center text-5xl mx-auto border-4 border-slate-950 shadow-2xl relative z-10">
-             {user.avatar}
+          <div className="relative inline-block group">
+             <UserAvatar avatar={user.avatar} size="xl" className="border-4 border-slate-950 shadow-2xl relative z-10" />
+             <button 
+                onClick={() => fileRef.current?.click()}
+                className="absolute bottom-2 right-2 p-2 bg-emerald-600 rounded-full text-white shadow-lg hover:bg-emerald-500 transition-all z-20 group-hover:scale-110"
+             >
+                <Camera size={16} />
+             </button>
+             <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={handleAvatarChange} />
           </div>
+          
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-emerald-500/20 blur-xl rounded-full z-0"></div>
           <div className="mt-4">
              <h2 className="text-2xl font-black text-white tracking-tight">{user.name}</h2>
