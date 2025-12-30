@@ -37,7 +37,9 @@ import {
   Menu,
   MoreHorizontal,
   Camera,
-  UploadCloud
+  UploadCloud,
+  HelpCircle,
+  Info
 } from 'lucide-react';
 import { AppTab, User, Message, QuizQuestion, NewsItem, Resource, Delegate, Fortune, MemoryPair } from './types';
 import { geminiService } from './services/geminiService';
@@ -45,6 +47,7 @@ import { dbService } from './services/db';
 
 const INVITATION_CODE = "G5L1-2025-CHINE-X";
 const ADMIN_CODE = "ADMIN-G5-MASTER";
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 // --- THEME CONFIGURATION ---
 const THEME_COLORS = {
@@ -53,6 +56,7 @@ const THEME_COLORS = {
   [AppTab.FILES]: 'from-amber-400 to-orange-500',
   [AppTab.QUIZ]: 'from-violet-400 to-purple-500',
   [AppTab.PROFILE]: 'from-pink-400 to-rose-500',
+  [AppTab.ABOUT]: 'from-indigo-400 to-blue-500',
 };
 
 const THEME_ACCENTS = {
@@ -61,6 +65,7 @@ const THEME_ACCENTS = {
   [AppTab.FILES]: 'text-amber-400',
   [AppTab.QUIZ]: 'text-violet-400',
   [AppTab.PROFILE]: 'text-pink-400',
+  [AppTab.ABOUT]: 'text-indigo-400',
 };
 
 // Composant Helper pour afficher l'avatar (Image ou Emoji) avec bordure colorée
@@ -321,17 +326,18 @@ const App: React.FC = () => {
         {activeTab === AppTab.FILES && <FilesView user={user} />}
         {activeTab === AppTab.QUIZ && <QuizView />}
         {activeTab === AppTab.PROFILE && <ProfileView user={user} onUpdateAvatar={updateProfileAvatar} onLogout={() => { setUser(null); localStorage.removeItem('g5_session_v1'); }} onReset={resetAllData} />}
+        {activeTab === AppTab.ABOUT && <AboutView />}
       </main>
 
       {/* FLOATING DOCK NAVIGATION */}
       <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-auto">
-        <div className="glass-nav px-6 py-3 rounded-full flex items-center gap-6 shadow-2xl ring-1 ring-white/10">
+        <div className="glass-nav px-6 py-3 rounded-full flex items-center gap-4 sm:gap-6 shadow-2xl ring-1 ring-white/10">
           <NavBtn id={AppTab.DASHBOARD} active={activeTab === AppTab.DASHBOARD} icon={<LayoutDashboard size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.DASHBOARD)} color="text-cyan-400" />
           <NavBtn id={AppTab.CHAT} active={activeTab === AppTab.CHAT} icon={<MessageSquare size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.CHAT)} color="text-emerald-400" />
-          <div className="w-px h-8 bg-white/10 mx-1"></div>
           <NavBtn id={AppTab.FILES} active={activeTab === AppTab.FILES} icon={<Files size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.FILES)} color="text-amber-400" />
           <NavBtn id={AppTab.QUIZ} active={activeTab === AppTab.QUIZ} icon={<Gamepad2 size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.QUIZ)} color="text-violet-400" />
           <div className="w-px h-8 bg-white/10 mx-1"></div>
+          <NavBtn id={AppTab.ABOUT} active={activeTab === AppTab.ABOUT} icon={<HelpCircle size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.ABOUT)} color="text-indigo-400" />
           <NavBtn id={AppTab.PROFILE} active={activeTab === AppTab.PROFILE} icon={<UserIcon size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.PROFILE)} color="text-pink-400" />
         </div>
       </nav>
@@ -347,6 +353,7 @@ const NavBtn = ({ id, active, icon, onClick, color }: { id: string, active: bool
     if (id === AppTab.FILES) activeBg = "bg-amber-500/20 shadow-amber-500/30";
     if (id === AppTab.QUIZ) activeBg = "bg-violet-500/20 shadow-violet-500/30";
     if (id === AppTab.PROFILE) activeBg = "bg-pink-500/20 shadow-pink-500/30";
+    if (id === AppTab.ABOUT) activeBg = "bg-indigo-500/20 shadow-indigo-500/30";
 
     return (
     <button onClick={onClick} className="relative group">
@@ -355,6 +362,70 @@ const NavBtn = ({ id, active, icon, onClick, color }: { id: string, active: bool
         </div>
         {active && <div className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${color.replace('text-', 'bg-')}`}></div>}
     </button>
+    );
+};
+
+const AboutView = () => {
+    return (
+        <div className="space-y-8 animate-fade-in pt-6 pb-20">
+             <div className="text-center space-y-2 mb-8">
+                <div className="inline-block p-4 rounded-full bg-slate-900 border border-white/5 shadow-2xl mb-2">
+                    <Info className="text-indigo-400" size={32} />
+                </div>
+                <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-blue-400 tracking-tight">Guide du Portail</h2>
+                <p className="text-slate-400 text-sm font-medium">Découvrez les fonctionnalités de votre espace G5</p>
+            </div>
+
+            <div className="grid gap-6">
+                <div className="glass p-6 rounded-[2rem] border border-white/5 hover:border-cyan-500/30 transition-all">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-cyan-500/10 rounded-2xl text-cyan-400"><LayoutDashboard size={24} /></div>
+                        <h3 className="text-lg font-bold text-white">Tableau de Bord</h3>
+                    </div>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                        Le point central de l'application. Consultez les <strong>annonces importantes</strong> (examens, changements de salle), visualisez l'<strong>emploi du temps</strong> commun et découvrez votre <strong>sagesse quotidienne</strong> grâce au Fortune Cookie généré par IA.
+                    </p>
+                </div>
+
+                <div className="glass p-6 rounded-[2rem] border border-white/5 hover:border-emerald-500/30 transition-all">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-emerald-500/10 rounded-2xl text-emerald-400"><MessageSquare size={24} /></div>
+                        <h3 className="text-lg font-bold text-white">Messagerie & IA</h3>
+                    </div>
+                    <p className="text-sm text-slate-400 leading-relaxed mb-2">
+                        Deux modes de communication disponibles :
+                    </p>
+                    <ul className="text-sm text-slate-400 space-y-2 list-disc list-inside">
+                        <li><strong>Groupe :</strong> Chat public avec tous les étudiants. Mentionnez <code>@laoshibot</code> pour faire intervenir l'IA.</li>
+                        <li><strong>Tuteur IA :</strong> Chat privé avec "Lǎoshī Bot". Il se souvient de votre progression et adapte ses explications.</li>
+                    </ul>
+                </div>
+
+                <div className="glass p-6 rounded-[2rem] border border-white/5 hover:border-amber-500/30 transition-all">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-amber-500/10 rounded-2xl text-amber-400"><Files size={24} /></div>
+                        <h3 className="text-lg font-bold text-white">Documents</h3>
+                    </div>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                        Bibliothèque partagée pour les cours, TD et annales d'examens. Vous pouvez télécharger les fichiers mis à disposition. La limite de taille pour les envois est fixée à <strong>10 Mo</strong>.
+                    </p>
+                </div>
+
+                <div className="glass p-6 rounded-[2rem] border border-white/5 hover:border-violet-500/30 transition-all">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-violet-500/10 rounded-2xl text-violet-400"><Gamepad2 size={24} /></div>
+                        <h3 className="text-lg font-bold text-white">Arcade</h3>
+                    </div>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                        Zone d'entraînement ludique générée par l'IA :
+                    </p>
+                    <ul className="text-sm text-slate-400 space-y-2 list-disc list-inside mt-2">
+                        <li><strong>Quiz Rapide :</strong> QCM sur la grammaire et la culture.</li>
+                        <li><strong>Mémoire Impériale :</strong> Jeu d'association de cartes (Caractère ↔ Définition) chronométré.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
     );
 };
 
@@ -405,7 +476,7 @@ const DashboardView = ({ user }: { user: User }) => {
     setShowNewsModal(false);
   };
   const handleScheduleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (file) { if (file.size > 2000000) { alert("L'image est trop volumineuse (Max 2MB)."); return; }
+    const file = e.target.files?.[0]; if (file) { if (file.size > MAX_FILE_SIZE) { alert("L'image est trop volumineuse (Max 10MB)."); return; }
       const reader = new FileReader(); reader.onloadend = async () => { const base64 = reader.result as string; await dbService.saveScheduleImage(base64); setScheduleUrl(base64); }; reader.readAsDataURL(file); }
   };
   const openDelegateSelection = async () => { const users = await dbService.getAllUsers(); setCandidateUsers(users); setShowDelegateModal(true); };
@@ -789,9 +860,9 @@ const FilesView = ({ user }: { user: User }) => {
         return;
      }
      
-     // Limite de taille pour éviter de surcharger le localStorage (2MB)
-     if (selectedFile.size > 2 * 1024 * 1024) {
-        alert("Fichier trop volumineux (Max 2MB pour le stockage local).");
+     // Limite de taille pour éviter de surcharger le localStorage (10MB)
+     if (selectedFile.size > MAX_FILE_SIZE) {
+        alert("Fichier trop volumineux (Max 10MB pour le stockage local).");
         return;
      }
 
@@ -842,7 +913,7 @@ const FilesView = ({ user }: { user: User }) => {
                 <input type="file" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" required />
                 <UploadCloud size={24} className="text-slate-500 mb-2 group-hover:text-amber-400" />
                 <p className="text-xs text-slate-400 font-medium">{selectedFile ? selectedFile.name : "Cliquez pour sélectionner un fichier"}</p>
-                <p className="text-[9px] text-slate-600 uppercase mt-1">Max 2MB</p>
+                <p className="text-[9px] text-slate-600 uppercase mt-1">Max 10MB</p>
              </div>
 
              <div className="flex gap-3">
@@ -1106,7 +1177,7 @@ const ProfileView = ({ user, onLogout, onUpdateAvatar, onReset }: { user: User, 
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (file) { if(file.size > 2000000) { alert("Image trop lourde (Max 2MB)"); return; }
+    const file = e.target.files?.[0]; if (file) { if(file.size > MAX_FILE_SIZE) { alert("Image trop lourde (Max 10MB)"); return; }
       const reader = new FileReader(); reader.onloadend = () => { const result = reader.result as string; onUpdateAvatar(result); }; reader.readAsDataURL(file); }
   };
 

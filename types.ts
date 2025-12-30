@@ -45,6 +45,7 @@ export interface QuizQuestion {
   options: string[];
   correctAnswer: number;
   explanation: string;
+  questions?: any; // Fallback pour structure potentiellement différente
 }
 
 export interface MemoryPair {
@@ -74,5 +75,6 @@ export enum AppTab {
   CHAT = 'chat',
   FILES = 'files',
   QUIZ = 'quiz',
-  PROFILE = 'profile'
+  PROFILE = 'profile',
+  ABOUT = 'about'
 }
