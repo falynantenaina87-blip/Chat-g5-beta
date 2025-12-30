@@ -1,0 +1,7 @@
+{
+  "name": "G5 L1 Portail Chinois",
+  "description": "Portail communautaire pour les étudiants de Licence 1 Chinois (Groupe 5) incluant messagerie assistée par IA, gestionnaire de fichiers et quiz dynamiques.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
