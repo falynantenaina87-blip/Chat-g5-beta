@@ -101,12 +101,25 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
+  
+  // État pour l'animation Nan-ju
+  const [showSplash, setShowSplash] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('g5_session_v1');
-    if (saved) setUser(JSON.parse(saved));
+    if (saved) {
+      setUser(JSON.parse(saved));
+      // Déclenche l'animation au rechargement si déjà connecté
+      triggerSplash();
+    }
     setIsOnline(dbService.isFirebaseActive());
   }, []);
+
+  const triggerSplash = () => {
+    setShowSplash(true);
+    // Durée de l'animation : 2.5 secondes
+    setTimeout(() => setShowSplash(false), 2500);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,6 +155,8 @@ const App: React.FC = () => {
       const userData = await dbService.getOrCreateUser(pseudo, role, "🐲", pin);
       setUser(userData);
       localStorage.setItem('g5_session_v1', JSON.stringify(userData));
+      // Déclenche l'animation après une connexion réussie
+      triggerSplash();
     } catch (err: any) {
       console.error(err);
       if (err.message.includes("Code PIN")) {
@@ -177,6 +192,7 @@ const App: React.FC = () => {
     }
   };
 
+  // ECRAN DE CONNEXION (Si pas d'utilisateur)
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden bg-slate-950">
@@ -242,6 +258,25 @@ const App: React.FC = () => {
           </form>
         </div>
       </div>
+    );
+  }
+
+  // ECRAN SPLASH "NAN-JU" (Si connecté et showSplash est true)
+  if (showSplash) {
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 relative overflow-hidden z-50">
+            {/* Background Effects */}
+            <div className="absolute top-0 -left-4 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[30rem] h-[30rem] bg-blue-600 rounded-full mix-blend-multiply filter blur-[100px] opacity-10 animate-pulse"></div>
+            <div className="absolute bottom-0 -right-4 w-96 h-96 bg-cyan-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+            
+            <div className="text-center z-10 animate-fade-in scale-110">
+                 <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-200 via-blue-400 to-purple-400 tracking-tighter drop-shadow-[0_0_25px_rgba(56,189,248,0.3)]">
+                    Nan-ju
+                 </h1>
+                 <p className="text-blue-300/60 text-xs font-bold uppercase tracking-[0.8em] mt-6 animate-pulse ml-2">Initialisation...</p>
+            </div>
+        </div>
     );
   }
 
