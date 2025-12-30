@@ -9,19 +9,20 @@ const getApiKey = (): string => {
   // Vérification des variables d'environnement Vite (import.meta.env)
   // @ts-ignore
   if (typeof import.meta !== 'undefined' && import.meta.env) {
+    // Priorité à la clé définie par l'utilisateur
     // @ts-ignore
-    if (import.meta.env.VITE_API_KEY) key = import.meta.env.VITE_API_KEY;
+    if (import.meta.env.VITE_GEMINI_API_KEY) key = import.meta.env.VITE_GEMINI_API_KEY;
     // @ts-ignore
-    else if (import.meta.env.VITE_GEMINI_API_KEY) key = import.meta.env.VITE_GEMINI_API_KEY;
+    else if (import.meta.env.VITE_API_KEY) key = import.meta.env.VITE_API_KEY;
   }
 
-  // Fallback pour Node.js / process.env
+  // Fallback pour Node.js / process.env (si nécessaire)
   // @ts-ignore
   if (!key && typeof process !== 'undefined' && process.env) {
     // @ts-ignore
-    if (process.env.API_KEY) key = process.env.API_KEY;
+    if (process.env.VITE_GEMINI_API_KEY) key = process.env.VITE_GEMINI_API_KEY;
     // @ts-ignore
-    else if (process.env.VITE_GEMINI_API_KEY) key = process.env.VITE_GEMINI_API_KEY;
+    else if (process.env.API_KEY) key = process.env.API_KEY;
   }
   
   return key;
@@ -32,15 +33,16 @@ const apiKey = getApiKey();
 const ai = new GoogleGenAI({ apiKey: apiKey || "dummy_key" });
 
 const BASE_INSTRUCTION = `
-Tu es "G5-Tuteur", l'assistant pédagogique officiel du Groupe 5 - Licence 1 Chinois.
-Ton : Formel, encourageant, expert.
-Tâches : Aide devoirs, grammaire, vocabulaire.
+Tu es "Lǎoshī Bot", l'assistant pédagogique officiel du Groupe 5 - Licence 1 Chinois.
+Ton : Formel, encourageant, expert en mandarin.
+Tâches : Aide devoirs, grammaire, vocabulaire, culture chinoise.
+Langue de réponse : Français (sauf pour les exemples en chinois).
 `;
 
 export const geminiService = {
   async *streamChatResponse(prompt: string, history: Message[] = [], userMemory: string = "", userName: string = "") {
     if (!apiKey || apiKey === "dummy_key") {
-      yield "⚠️ Erreur : Clé API manquante. Ajoutez VITE_GEMINI_API_KEY ou VITE_API_KEY dans votre fichier .env.";
+      yield "⚠️ Erreur Configuration : Clé API introuvable.\n\n1. Vérifiez que `VITE_GEMINI_API_KEY` est bien dans votre fichier `.env`.\n2. REDÉMARREZ votre serveur de développement (npm run dev) pour que les changements soient pris en compte.";
       return;
     }
 
@@ -71,9 +73,9 @@ export const geminiService = {
       }
     } catch (error: any) {
       console.error("Gemini Error:", error);
-      if (error.message?.includes("API key")) yield "Erreur: Clé API invalide ou mal configurée.";
-      else if (error.message?.includes("429")) yield "Service saturé, réessayez dans 30s.";
-      else yield "Erreur de communication avec le serveur (Vérifiez votre connexion ou la clé API).";
+      if (error.message?.includes("API key")) yield "Erreur API : La clé fournie est invalide. Vérifiez `VITE_GEMINI_API_KEY`.";
+      else if (error.message?.includes("429")) yield "Service saturé (Quota dépassé), réessayez dans quelques instants.";
+      else yield `Erreur technique : ${error.message || "Impossible de joindre Gemini."}`;
     }
   },
 
@@ -93,9 +95,13 @@ export const geminiService = {
   async generateQuiz(topic: string, count: number = 3): Promise<QuizQuestion[]> {
     if (!apiKey || apiKey === "dummy_key") return [];
     try {
+      // PROMPT MODIFIÉ : On force le contexte Chinois et la langue Française
       const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Génère ${count} questions QCM sur : ${topic}. Format JSON strict.`,
+        contents: `Génère ${count} questions QCM portant EXCLUSIVEMENT sur la langue et la culture chinoise (Mandarin, Histoire, Coutumes).
+        Sujet spécifique : ${topic}.
+        Langue des questions et explications : FRANÇAIS.
+        Format JSON strict.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -122,7 +128,7 @@ export const geminiService = {
     try {
       const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `6 paires vocabulaire (Hanzi + Pinyin/Trad) sur : ${topic}. JSON strict.`,
+        contents: `6 paires de vocabulaire CHINOIS (Hanzi + Pinyin/Traduction Française) sur le thème : ${topic}. JSON strict.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -149,21 +155,36 @@ export const geminiService = {
     try {
       const resp = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
-        contents: { parts: [{ text: `Illustration for: ${title}. ${content}` }] },
+        contents: { parts: [{ text: `Generate a high quality, artistic illustration for an announcement about Chinese Studies titled "${title}". The content is: "${content}". IMPORTANT: Do not include any text inside the image.` }] },
         config: { imageConfig: { aspectRatio: "16:9" } }
       });
-      // @ts-ignore
-      const data = resp.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      return data ? `data:image/png;base64,${data}` : null;
-    } catch (e) { return null; }
+
+      if (resp.candidates?.[0]?.content?.parts) {
+        for (const part of resp.candidates[0].content.parts) {
+          if (part.inlineData && part.inlineData.data) {
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
+        }
+      }
+      return null;
+    } catch (e) { 
+      return null; 
+    }
   },
 
   async generateFortune(): Promise<Fortune | null> {
     if (!apiKey || apiKey === "dummy_key") return null;
     try {
+      // PROMPT MODIFIÉ : On force les champs en Français
       const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: "Fortune cookie chinois. JSON strict.",
+        contents: `Génère un Fortune Cookie chinois authentique.
+        - chengyu: Proverbe en caractères chinois.
+        - pinyin: Transcription.
+        - translation: Traduction en FRANÇAIS.
+        - advice: Conseil philosophique en FRANÇAIS.
+        - luckyColor: Une couleur porte-bonheur en FRANÇAIS.
+        JSON strict.`,
         config: {
             responseMimeType: "application/json",
             responseSchema: {
