@@ -164,8 +164,26 @@ export const dbService = {
       const snapshot = await getDocs(q);
       return snapshot.docs.map(doc => doc.data() as User);
     }
+    
+    // Mode Local
     const usersMap = localStore.get('users', {});
-    return Object.values(usersMap) as User[];
+    const realUsers = Object.values(usersMap) as User[];
+
+    // --- FIX: Injection de faux utilisateurs pour tester l'UI si on est seul ---
+    // Cela permet à l'admin de voir des candidats potentiels pour les délégués
+    if (realUsers.length < 3) {
+       const mockUsers: User[] = [
+         { uid: 'mock_1', name: 'Sophie Lin', email: 'sophie@local', role: 'student', avatar: '👩🏻‍🎓', pin: '1234', aiMemory: '' },
+         { uid: 'mock_2', name: 'Marc Dupont', email: 'marc@local', role: 'student', avatar: '👨🏼‍🎓', pin: '1234', aiMemory: '' },
+         { uid: 'mock_3', name: 'Wei Chen', email: 'wei@local', role: 'student', avatar: '👓', pin: '1234', aiMemory: '' },
+         { uid: 'mock_4', name: 'Léa Zhang', email: 'lea@local', role: 'student', avatar: '🌸', pin: '1234', aiMemory: '' }
+       ];
+       // On retourne les vrais users + les mocks qui ne sont pas déjà présents (par ID)
+       // NB: On ne les sauvegarde pas dans la base pour ne pas polluer, c'est juste visuel pour la sélection
+       return [...realUsers, ...mockUsers.filter(m => !usersMap[m.uid])];
+    }
+    
+    return realUsers;
   },
 
   updateUserAiMemory: async (userId: string, newMemory: string) => {

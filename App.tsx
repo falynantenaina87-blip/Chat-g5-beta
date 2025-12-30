@@ -612,7 +612,29 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
 
      const msgData = { senderId: currentUser.uid, senderName: currentUser.name, senderAvatar: currentUser.avatar, text: text, timestamp: Date.now(), isAi: false };
 
-     if (mode === 'public') await dbService.addPublicMessage(msgData);
+     if (mode === 'public') {
+        await dbService.addPublicMessage(msgData);
+        
+        // DÉTECTION MENTION BOT
+        if (text.toLowerCase().includes('@laoshibot') || text.toLowerCase().includes('@bot')) {
+            setIsTyping(true);
+            try {
+                let fullResponse = "";
+                // On utilise l'historique public mais sans mémoire personnelle pour éviter les fuites
+                const stream = geminiService.streamChatResponse(text, messages, "", currentUser.name);
+                for await (const chunk of stream) fullResponse += chunk;
+                
+                await dbService.addPublicMessage({ 
+                    senderId: 'laoshibot', 
+                    senderName: 'Lǎoshī Bot', 
+                    senderAvatar: '👨‍🏫', 
+                    text: fullResponse, 
+                    timestamp: Date.now(), 
+                    isAi: true 
+                });
+            } catch (err) { console.error(err); } finally { setIsTyping(false); }
+        }
+     }
      else {
         await dbService.addPrivateMessage(currentUser.uid, msgData);
         setIsTyping(true);

@@ -39,10 +39,37 @@ Tâches : Aide devoirs, grammaire, vocabulaire, culture chinoise.
 Langue de réponse : Français (sauf pour les exemples en chinois).
 `;
 
+// --- UTILITAIRE GESTION ERREURS ---
+const getFriendlyErrorMessage = (error: any): string => {
+  const errStr = (error.message || error.toString()).toLowerCase();
+  
+  if (errStr.includes("api key") || errStr.includes("invalid authentication")) {
+    return "🛑 **Erreur d'authentification**\nLa clé API est manquante ou invalide. Contactez l'administrateur ou vérifiez le fichier `.env`.";
+  }
+  
+  if (errStr.includes("429") || errStr.includes("quota") || errStr.includes("exhausted")) {
+    return "⏳ **Quota atteint**\nLe service est temporairement indisponible (limite de requêtes gratuite atteinte). Veuillez patienter une minute avant de réessayer.";
+  }
+
+  if (errStr.includes("500") || errStr.includes("503") || errStr.includes("overloaded") || errStr.includes("capacity")) {
+    return "🤯 **Serveurs Surchargés**\nLes serveurs de Google Gemini sont très sollicités en ce moment. Réessayez dans quelques instants.";
+  }
+
+  if (errStr.includes("fetch") || errStr.includes("network") || errStr.includes("connection") || errStr.includes("failed to fetch")) {
+    return "📡 **Erreur de Connexion**\nImpossible de contacter le serveur. Vérifiez votre connexion internet.";
+  }
+
+  if (errStr.includes("safety") || errStr.includes("blocked") || errStr.includes("harmful")) {
+    return "🛡️ **Contenu Bloqué**\nLa réponse a été filtrée par les règles de sécurité de l'IA (contenu jugé inapproprié ou dangereux par le modèle). Essayez de reformuler votre demande.";
+  }
+
+  return `🐛 **Erreur Technique**\nUne erreur inattendue est survenue : ${error.message ? error.message.slice(0, 100) : "Détails inconnus"}.`;
+};
+
 export const geminiService = {
   async *streamChatResponse(prompt: string, history: Message[] = [], userMemory: string = "", userName: string = "") {
     if (!apiKey || apiKey === "dummy_key") {
-      yield "⚠️ Erreur Configuration : Clé API introuvable.\n\n1. Vérifiez que `VITE_GEMINI_API_KEY` est bien dans votre fichier `.env`.\n2. REDÉMARREZ votre serveur de développement (npm run dev) pour que les changements soient pris en compte.";
+      yield "⚠️ **Configuration Requise** : Clé API introuvable.\n\n1. Vérifiez que `VITE_GEMINI_API_KEY` est bien dans votre fichier `.env`.\n2. REDÉMARREZ votre serveur de développement (npm run dev) pour que les changements soient pris en compte.";
       return;
     }
 
@@ -72,10 +99,8 @@ export const geminiService = {
         yield chunk.text || "";
       }
     } catch (error: any) {
-      console.error("Gemini Error:", error);
-      if (error.message?.includes("API key")) yield "Erreur API : La clé fournie est invalide. Vérifiez `VITE_GEMINI_API_KEY`.";
-      else if (error.message?.includes("429")) yield "Service saturé (Quota dépassé), réessayez dans quelques instants.";
-      else yield `Erreur technique : ${error.message || "Impossible de joindre Gemini."}`;
+      console.error("Gemini Stream Error:", error);
+      yield getFriendlyErrorMessage(error);
     }
   },
 
@@ -89,7 +114,10 @@ export const geminiService = {
         contents: `Analyse cet échange pour mettre à jour le profil étudiant (bref):\n${oldMem}\nÉtudiant: ${userMsg}\nIA: ${aiMsg}`,
       });
       return resp.text || oldMem;
-    } catch (e) { return oldMem; }
+    } catch (e) { 
+      console.warn("Profil update failed:", e);
+      return oldMem; 
+    }
   },
 
   async generateQuiz(topic: string, count: number = 3): Promise<QuizQuestion[]> {
@@ -120,7 +148,10 @@ export const geminiService = {
         }
       });
       return JSON.parse(resp.text || "[]");
-    } catch (e) { console.error(e); return []; }
+    } catch (e) { 
+      console.error("Quiz generation failed:", e); 
+      return []; 
+    }
   },
 
   async generateMemoryPairs(topic: string): Promise<MemoryPair[]> {
@@ -147,7 +178,10 @@ export const geminiService = {
         }
       });
       return JSON.parse(resp.text || "[]");
-    } catch (e) { return []; }
+    } catch (e) { 
+      console.error("Memory pairs generation failed:", e);
+      return []; 
+    }
   },
 
   async generateAnnouncementImage(title: string, content: string): Promise<string | null> {
@@ -168,6 +202,7 @@ export const geminiService = {
       }
       return null;
     } catch (e) { 
+      console.error("Image generation failed:", e);
       return null; 
     }
   },
@@ -201,6 +236,9 @@ export const geminiService = {
         }
       });
       return JSON.parse(resp.text || "{}");
-    } catch (e) { return null; }
+    } catch (e) { 
+      console.error("Fortune generation failed:", e);
+      return null; 
+    }
   }
 };
