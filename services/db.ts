@@ -1,3 +1,4 @@
+
 import { db } from "./firebase";
 import { 
   collection, 
@@ -86,7 +87,8 @@ export const dbService = {
           email: `${userId}@student.g5`,
           avatar: role === 'admin' ? "🛡️" : avatar,
           role: role,
-          pin: pin // Enregistrement du PIN
+          pin: pin, // Enregistrement du PIN
+          aiMemory: "" // Initialisation mémoire vide
         };
         await setDoc(userRef, newUser);
         return newUser;
@@ -117,7 +119,8 @@ export const dbService = {
           email: `${userId}@student.g5`,
           avatar: role === 'admin' ? "🛡️" : avatar,
           role: role,
-          pin: pin
+          pin: pin,
+          aiMemory: ""
         };
         usersMap[userId] = newUser;
         setLocal(STORAGE_KEYS.USERS, usersMap);
@@ -134,6 +137,20 @@ export const dbService = {
     } else {
       const usersMap = getLocal<Record<string, User>>(STORAGE_KEYS.USERS, {});
       return Object.values(usersMap).sort((a, b) => a.name.localeCompare(b.name));
+    }
+  },
+
+  // --- MEMOIRE IA ---
+  updateUserAiMemory: async (userId: string, newMemory: string) => {
+    if (db) {
+      const userRef = doc(db, "users", userId);
+      await updateDoc(userRef, { aiMemory: newMemory });
+    } else {
+      const usersMap = getLocal<Record<string, User>>(STORAGE_KEYS.USERS, {});
+      if (usersMap[userId]) {
+        usersMap[userId].aiMemory = newMemory;
+        setLocal(STORAGE_KEYS.USERS, usersMap);
+      }
     }
   },
 

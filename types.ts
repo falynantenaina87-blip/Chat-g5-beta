@@ -5,7 +5,8 @@ export interface User {
   name: string;
   avatar: string;
   role: 'student' | 'admin' | 'delegate';
-  pin: string; // Nouveau champ de sécurité
+  pin: string;
+  aiMemory?: string; // Profil cognitif et historique d'apprentissage généré par l'IA
 }
 
 export interface Message {
@@ -46,11 +47,26 @@ export interface QuizQuestion {
   explanation: string;
 }
 
+export interface MemoryPair {
+  id: string;
+  hanzi: string;
+  pinyin: string;
+  translation: string;
+}
+
 export interface Delegate {
   id: string;
   name: string;
   role: string;
   avatar: string;
+}
+
+export interface Fortune {
+  chengyu: string;
+  pinyin: string;
+  translation: string;
+  advice: string;
+  luckyColor: string;
 }
 
 export enum AppTab {
