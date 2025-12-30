@@ -5,16 +5,25 @@ import { QuizQuestion, Message, Fortune, MemoryPair } from "../types";
 // --- GESTION CLÉ API ---
 const getApiKey = (): string => {
   let key = '';
+  
+  // Vérification des variables d'environnement Vite (import.meta.env)
   // @ts-ignore
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
     // @ts-ignore
-    key = import.meta.env.VITE_API_KEY;
+    if (import.meta.env.VITE_API_KEY) key = import.meta.env.VITE_API_KEY;
+    // @ts-ignore
+    else if (import.meta.env.VITE_GEMINI_API_KEY) key = import.meta.env.VITE_GEMINI_API_KEY;
   }
+
+  // Fallback pour Node.js / process.env
   // @ts-ignore
-  if (!key && typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+  if (!key && typeof process !== 'undefined' && process.env) {
     // @ts-ignore
-    key = process.env.API_KEY;
+    if (process.env.API_KEY) key = process.env.API_KEY;
+    // @ts-ignore
+    else if (process.env.VITE_GEMINI_API_KEY) key = process.env.VITE_GEMINI_API_KEY;
   }
+  
   return key;
 };
 
@@ -30,8 +39,8 @@ Tâches : Aide devoirs, grammaire, vocabulaire.
 
 export const geminiService = {
   async *streamChatResponse(prompt: string, history: Message[] = [], userMemory: string = "", userName: string = "") {
-    if (!apiKey) {
-      yield "⚠️ Erreur : Clé API manquante. Ajoutez VITE_API_KEY dans votre fichier .env.";
+    if (!apiKey || apiKey === "dummy_key") {
+      yield "⚠️ Erreur : Clé API manquante. Ajoutez VITE_GEMINI_API_KEY ou VITE_API_KEY dans votre fichier .env.";
       return;
     }
 
@@ -62,7 +71,7 @@ export const geminiService = {
       }
     } catch (error: any) {
       console.error("Gemini Error:", error);
-      if (error.message?.includes("API key")) yield "Erreur: Clé API invalide.";
+      if (error.message?.includes("API key")) yield "Erreur: Clé API invalide ou mal configurée.";
       else if (error.message?.includes("429")) yield "Service saturé, réessayez dans 30s.";
       else yield "Erreur de communication avec le serveur (Vérifiez votre connexion ou la clé API).";
     }
@@ -71,7 +80,7 @@ export const geminiService = {
   // --- AUTRES FONCTIONS (Simplifiées pour éviter les crashs) ---
 
   async updateStudentProfile(oldMem: string, userMsg: string, aiMsg: string): Promise<string> {
-    if (!apiKey) return oldMem;
+    if (!apiKey || apiKey === "dummy_key") return oldMem;
     try {
       const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -82,7 +91,7 @@ export const geminiService = {
   },
 
   async generateQuiz(topic: string, count: number = 3): Promise<QuizQuestion[]> {
-    if (!apiKey) return [];
+    if (!apiKey || apiKey === "dummy_key") return [];
     try {
       const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -109,7 +118,7 @@ export const geminiService = {
   },
 
   async generateMemoryPairs(topic: string): Promise<MemoryPair[]> {
-    if (!apiKey) return [];
+    if (!apiKey || apiKey === "dummy_key") return [];
     try {
       const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -136,7 +145,7 @@ export const geminiService = {
   },
 
   async generateAnnouncementImage(title: string, content: string): Promise<string | null> {
-    if (!apiKey) return null;
+    if (!apiKey || apiKey === "dummy_key") return null;
     try {
       const resp = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
@@ -150,7 +159,7 @@ export const geminiService = {
   },
 
   async generateFortune(): Promise<Fortune | null> {
-    if (!apiKey) return null;
+    if (!apiKey || apiKey === "dummy_key") return null;
     try {
       const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
