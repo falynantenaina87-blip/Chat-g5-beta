@@ -688,6 +688,7 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [streamingAiResponse, setStreamingAiResponse] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -699,7 +700,7 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  }, [messages, isTyping, streamingAiResponse]);
 
   useEffect(() => {
     const handleClear = () => {
@@ -717,6 +718,13 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
      setInput("");
 
      const msgData = { senderId: currentUser.uid, senderName: currentUser.name, senderAvatar: currentUser.avatar, text: text, timestamp: Date.now(), isAi: false };
+     
+     // OPTIMISATION: Affichage immédiat du message utilisateur
+     const optimisticMsg = { ...msgData, id: `temp-${Date.now()}`, status: 'sending' };
+     setMessages(prev => [...prev, optimisticMsg as Message]);
+     
+     // Contexte pour l'IA (incluant le message actuel non encore en DB)
+     const aiContext = [...messages, { ...msgData, id: 'temp-ai-context' } as Message];
 
      if (mode === 'public') {
         await dbService.addPublicMessage(msgData);
@@ -726,10 +734,20 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
             setIsTyping(true);
             try {
                 let fullResponse = "";
-                // On utilise l'historique public mais sans mémoire personnelle pour éviter les fuites
-                const stream = geminiService.streamChatResponse(text, messages, "", currentUser.name);
-                for await (const chunk of stream) fullResponse += chunk;
+                let hasStartedStreaming = false;
+                const stream = geminiService.streamChatResponse(text, aiContext, "", currentUser.name);
                 
+                for await (const chunk of stream) {
+                    if (!hasStartedStreaming) {
+                        setIsTyping(false);
+                        setStreamingAiResponse("");
+                        hasStartedStreaming = true;
+                    }
+                    fullResponse += chunk;
+                    setStreamingAiResponse(prev => (prev || "") + chunk);
+                }
+                
+                // Sauvegarde finale en DB
                 await dbService.addPublicMessage({ 
                     senderId: 'laoshibot', 
                     senderName: 'Lǎoshī Bot', 
@@ -738,7 +756,10 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
                     timestamp: Date.now(), 
                     isAi: true 
                 });
-            } catch (err) { console.error(err); } finally { setIsTyping(false); }
+            } catch (err) { console.error(err); } finally { 
+                setIsTyping(false); 
+                setStreamingAiResponse(null); 
+            }
         }
      }
      else {
@@ -746,13 +767,28 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
         setIsTyping(true);
         try {
            let fullResponse = "";
-           const stream = geminiService.streamChatResponse(text, messages, currentUser.aiMemory, currentUser.name);
-           for await (const chunk of stream) fullResponse += chunk;
+           let hasStartedStreaming = false;
+           const stream = geminiService.streamChatResponse(text, aiContext, currentUser.aiMemory, currentUser.name);
+           
+           for await (const chunk of stream) {
+               if (!hasStartedStreaming) {
+                    setIsTyping(false);
+                    setStreamingAiResponse("");
+                    hasStartedStreaming = true;
+               }
+               fullResponse += chunk;
+               setStreamingAiResponse(prev => (prev || "") + chunk);
+           }
+           
            await dbService.addPrivateMessage(currentUser.uid, { senderId: 'laoshibot', senderName: 'Lǎoshī Bot', senderAvatar: '👨‍🏫', text: fullResponse, timestamp: Date.now(), isAi: true });
+           
            geminiService.updateStudentProfile(currentUser.aiMemory || "", text, fullResponse).then(async (newMemory) => {
              if (newMemory !== currentUser.aiMemory) { await dbService.updateUserAiMemory(currentUser.uid, newMemory); onMemoryUpdate(newMemory); }
            });
-        } catch (err) { console.error(err); } finally { setIsTyping(false); }
+        } catch (err) { console.error(err); } finally { 
+            setIsTyping(false); 
+            setStreamingAiResponse(null);
+        }
      }
   };
 
@@ -800,7 +836,21 @@ const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemory
                 </div>
              </div>
           )})}
-          {isTyping && (
+          
+          {/* VISUALISATION STREAMING IA */}
+          {streamingAiResponse && (
+              <div className="flex gap-4 animate-fade-in group">
+                <UserAvatar avatar="👨‍🏫" className="shrink-0 border-emerald-500/50 shadow-emerald-500/20" size="md" role="bot" />
+                <div className="relative max-w-[80%]">
+                    <div className="p-4 rounded-2xl text-sm leading-relaxed shadow-lg backdrop-blur-sm bg-slate-900/80 border border-emerald-500/30 text-emerald-50 rounded-tl-sm shadow-[0_0_15px_rgba(16,185,129,0.05)]">
+                        <p className="text-[9px] font-bold opacity-50 mb-1 uppercase tracking-wider text-emerald-400">Lǎoshī Bot (écrit...)</p>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert prose-p:my-1 prose-headings:text-emerald-400 prose-strong:text-white prose-sm max-w-none">{streamingAiResponse}</ReactMarkdown>
+                    </div>
+                </div>
+              </div>
+          )}
+
+          {isTyping && !streamingAiResponse && (
              <div className="flex gap-4">
                 <div className="w-8 h-8 rounded-xl bg-emerald-900/50 flex items-center justify-center text-lg border border-emerald-500/30">🤖</div>
                 <div className="glass px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1.5 items-center">
