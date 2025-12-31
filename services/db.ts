@@ -46,8 +46,15 @@ export const dbService = {
 
   // Abonnements Temps Réel (Mode Push)
   subscribeToMessages: (cb: (msgs: Message[]) => void) => {
+    // Vérification de sécurité pour éviter d'écouter une collection vide si la config est cassée
+    if (!db) return () => {};
+
     const q = query(collection(db, "messages"), orderBy("timestamp", "asc"), limit(50));
-    return onSnapshot(q, (snap) => cb(snap.docs.map(mapDoc) as Message[]));
+    return onSnapshot(q, (snap) => {
+      cb(snap.docs.map(mapDoc) as Message[]);
+    }, (error) => {
+      console.error("❌ Erreur de lecture (subscribeToMessages) :", error);
+    });
   },
 
   subscribeToNews: (cb: (news: NewsItem[]) => void) => {
@@ -60,9 +67,21 @@ export const dbService = {
     return onSnapshot(q, (snap) => cb(snap.docs.map(d => ({ id: d.id, ...d.data() } as Resource))));
   },
 
-  // Envoi Cloud
+  // Envoi Cloud avec Diagnostic
   addMessage: async (msg: any) => {
-    await addDoc(collection(db, "messages"), { ...msg, timestamp: serverTimestamp() });
+    try {
+      console.log("📤 Envoi message vers Firestore...", msg);
+      await addDoc(collection(db, "messages"), { ...msg, timestamp: serverTimestamp() });
+      console.log("✅ Message enregistré avec succès.");
+    } catch (error: any) {
+      console.error("🔥 ÉCHEC ÉCRITURE FIREBASE :", error);
+      if (error.code === 'permission-denied') {
+        console.error("👉 Vérifiez vos règles de sécurité Firestore (Rules).");
+      } else if (error.code === 'not-found') {
+        console.error("👉 Le projet Firestore semble ne pas exister ou l'URL est mauvaise.");
+      }
+      throw error; // Renvoie l'erreur à l'UI pour affichage
+    }
   },
 
   fullReset: () => {

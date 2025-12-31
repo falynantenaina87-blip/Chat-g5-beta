@@ -2,8 +2,30 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { QuizQuestion, Message, Fortune, MemoryPair } from "../types";
 
-// Accès direct à la clé d'environnement selon les standards du projet
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper pour lire les variables d'environnement (Compatible Vite & Standard)
+const getEnv = (key: string) => {
+  try {
+    // @ts-ignore - Support Vite
+    if (import.meta && import.meta.env) {
+      // @ts-ignore
+      const val = import.meta.env[`VITE_${key}`] || import.meta.env[key];
+      if (val) return val;
+    }
+  } catch (e) {}
+  
+  try {
+    // Support Node/Webpack
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env[`VITE_${key}`] || process.env[key];
+    }
+  } catch (e) {}
+  
+  return undefined;
+};
+
+// Initialisation avec support Vite
+const apiKey = getEnv('API_KEY');
+const ai = new GoogleGenAI({ apiKey: apiKey || "" });
 
 const BASE_INSTRUCTION = `
 Tu es "Lǎoshī Bot", l'assistant pédagogique officiel du Groupe 5.
@@ -13,8 +35,8 @@ Aide les étudiants en Licence 1 Chinois pour leurs devoirs et révisions.
 
 export const geminiService = {
   async *streamChatResponse(prompt: string, history: Message[] = [], userMemory: string = "", userName: string = "") {
-    if (!process.env.API_KEY) {
-      yield "⚠️ Erreur : Clé API manquante. Contactez l'administrateur.";
+    if (!apiKey) {
+      yield "⚠️ Erreur : Clé API manquante. Vérifiez la variable VITE_API_KEY sur Vercel.";
       return;
     }
 
@@ -24,7 +46,6 @@ export const geminiService = {
         parts: [{ text: msg.text }]
       }));
 
-      // Correct: Use ai.models.generateContentStream and await the call
       const response = await ai.models.generateContentStream({
         model: 'gemini-3-flash-preview',
         contents: [
@@ -36,7 +57,6 @@ export const geminiService = {
       });
 
       for await (const chunk of response) {
-        // Correct: Accessing .text property directly
         yield chunk.text || "";
       }
     } catch (error: any) {
@@ -64,7 +84,6 @@ export const geminiService = {
             }
         }
       });
-      // Correct: Accessing .text property directly
       return JSON.parse(resp.text || "{}");
     } catch (e) {
       return null;

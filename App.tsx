@@ -167,6 +167,18 @@ export default function App() {
     if (saved) setUser(JSON.parse(saved));
   }, []);
 
+  // --- EFFET DE BACKGROUND DYNAMIQUE ---
+  useEffect(() => {
+    // Si connecté : GIF animé (giphy.gif)
+    // Si déconnecté : Photo statique (background photo g5l1.jpg)
+    const bgImage = user ? '/giphy.gif' : '/background photo g5l1.jpg';
+    
+    document.body.style.backgroundImage = `
+      linear-gradient(to bottom, rgba(2, 6, 23, 0.7), rgba(2, 6, 23, 0.9)),
+      url('${bgImage}')
+    `;
+  }, [user]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(""); setLoading(true);
