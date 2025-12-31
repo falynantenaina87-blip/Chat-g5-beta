@@ -1,1287 +1,233 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { 
   LayoutDashboard, 
   MessageSquare, 
   Files, 
-  Gamepad2, 
   User as UserIcon, 
   Send, 
   Download, 
-  Bell, 
-  BookOpen,
-  CheckCircle2,
-  ChevronRight,
   LogOut,
-  Image as ImageIcon,
-  Trash2,
-  RefreshCw,
-  PlusCircle,
   Wifi,
-  WifiOff,
-  Users,
-  Bot,
-  ShieldAlert,
-  Edit,
-  UserPlus,
-  X,
-  Sparkles,
   Loader2,
-  BrainCircuit,
-  Dna,
-  Grid3X3,
-  ListChecks,
-  Timer,
-  Menu,
-  MoreHorizontal,
-  Camera,
-  UploadCloud,
-  HelpCircle,
-  Info
+  RefreshCw,
+  Sparkles,
+  Bot
 } from 'lucide-react';
-import { AppTab, User, Message, QuizQuestion, NewsItem, Resource, Delegate, Fortune, MemoryPair } from './types';
-import { geminiService } from './services/geminiService';
+import { AppTab, User, Message, NewsItem, Resource } from './types';
 import { dbService } from './services/db';
+import { geminiService } from './services/geminiService';
 
-const INVITATION_CODE = "G5L1-2025-CHINE-X";
-const ADMIN_CODE = "ADMIN-G5-MASTER";
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+// --- COMPOSANTS AUXILIAIRES ---
 
-// --- THEME CONFIGURATION ---
-const THEME_COLORS = {
-  [AppTab.DASHBOARD]: 'from-cyan-400 to-blue-500',
-  [AppTab.CHAT]: 'from-emerald-400 to-teal-500',
-  [AppTab.FILES]: 'from-amber-400 to-orange-500',
-  [AppTab.QUIZ]: 'from-violet-400 to-purple-500',
-  [AppTab.PROFILE]: 'from-pink-400 to-rose-500',
-  [AppTab.ABOUT]: 'from-indigo-400 to-blue-500',
-};
-
-const THEME_ACCENTS = {
-  [AppTab.DASHBOARD]: 'text-cyan-400',
-  [AppTab.CHAT]: 'text-emerald-400',
-  [AppTab.FILES]: 'text-amber-400',
-  [AppTab.QUIZ]: 'text-violet-400',
-  [AppTab.PROFILE]: 'text-pink-400',
-  [AppTab.ABOUT]: 'text-indigo-400',
-};
-
-// Composant Helper pour afficher l'avatar (Image ou Emoji) avec bordure colorée
-const UserAvatar = ({ avatar, className = "", size = "md", role = 'student' }: { avatar: string, className?: string, size?: "sm" | "md" | "lg" | "xl", role?: string }) => {
-  const isImage = avatar.startsWith("data:") || avatar.startsWith("http");
+const UserAvatar = ({ avatar, size = "md", role = 'student' }: { avatar: string, size?: string, role?: string }) => {
+  let border = "from-slate-700 to-slate-800";
+  if (role === 'admin') border = "from-amber-400 to-orange-500";
+  if (role === 'bot') border = "from-purple-400 to-indigo-500";
   
-  // Bordure dynamique selon le rôle
-  let borderGradient = "from-slate-700 to-slate-800";
-  if (role === 'admin') borderGradient = "from-amber-400 to-orange-500";
-  else if (role === 'delegate') borderGradient = "from-purple-400 to-pink-500";
-  else if (role === 'bot') borderGradient = "from-emerald-400 to-teal-500";
-  
+  const dim = size === 'sm' ? 'w-8 h-8' : size === 'md' ? 'w-12 h-12' : size === 'lg' ? 'w-20 h-20' : 'w-32 h-32';
+  const text = size === 'sm' ? 'text-xs' : size === 'md' ? 'text-xl' : 'text-4xl';
+
   return (
-    <div className={`rounded-full p-[2px] bg-gradient-to-br ${borderGradient} shadow-lg ${className}`}>
-        <div className={`rounded-full flex items-center justify-center overflow-hidden shrink-0 bg-slate-900 back`} 
-        style={{
-            width: size === 'sm' ? '2rem' : size === 'md' ? '3rem' : size === 'lg' ? '5rem' : '8rem',
-            height: size === 'sm' ? '2rem' : size === 'md' ? '3rem' : size === 'lg' ? '5rem' : '8rem',
-            fontSize: size === 'sm' ? '1rem' : size === 'md' ? '1.5rem' : size === 'lg' ? '2.5rem' : '4rem'
-        }}
-        >
-        {isImage ? (
-            <img src={avatar} alt="User" className="w-full h-full object-cover" />
-        ) : (
-            <span>{avatar}</span>
-        )}
+    <div className={`rounded-full p-[2px] bg-gradient-to-br ${border} shadow-lg shrink-0`}>
+        <div className={`rounded-full flex items-center justify-center overflow-hidden bg-slate-900 ${dim} ${text}`}>
+        {avatar.startsWith("http") || avatar.startsWith("data:") ? <img src={avatar} className="w-full h-full object-cover" /> : <span>{avatar}</span>}
         </div>
     </div>
   );
 };
 
-const App: React.FC = () => {
+const DashboardView = () => {
+  const [news, setNews] = useState<NewsItem[]>([]);
+  useEffect(() => dbService.subscribeToNews(setNews), []);
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex items-center justify-between px-2">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-400">Actualités Groupe 5</h3>
+        <RefreshCw size={12} className="text-slate-600 animate-spin" />
+      </div>
+      {news.length === 0 ? (
+        <div className="glass p-10 rounded-[2rem] text-center text-slate-500 text-sm italic border-white/5">En attente d'infos...</div>
+      ) : (
+        news.map(item => (
+          <div key={item.id} className="glass p-6 rounded-[2.5rem] border-white/5">
+            <span className="text-[9px] font-bold px-2 py-1 bg-blue-500/10 text-blue-400 rounded-full mb-3 inline-block uppercase">{item.tag}</span>
+            <h4 className="font-bold text-white text-lg mb-2">{item.title}</h4>
+            <p className="text-sm text-slate-400 leading-relaxed">{item.content}</p>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
+
+const ChatView = ({ user }: { user: User }) => {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => dbService.subscribeToMessages(setMessages), []);
+  useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages, isTyping]);
+
+  const onSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    const txt = input.trim();
+    setInput("");
+
+    await dbService.addMessage({
+      senderId: user.uid, senderName: user.name, senderAvatar: user.avatar,
+      text: txt, isAi: false
+    });
+
+    if (txt.toLowerCase().includes('bot') || txt.includes('?')) {
+      setIsTyping(true);
+      let full = "";
+      const stream = geminiService.streamChatResponse(txt, messages, user.aiMemory, user.name);
+      for await (const chunk of stream) { full += chunk; }
+      await dbService.addMessage({
+        senderId: 'ai', senderName: 'Lǎoshī Bot', senderAvatar: '🤖',
+        text: full, isAi: true
+      });
+      setIsTyping(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-210px)]">
+      <div className="flex-1 overflow-y-auto space-y-4 pr-2 no-scrollbar">
+        {messages.map(m => (
+          <div key={m.id} className={`flex gap-3 ${m.senderId === user.uid ? 'flex-row-reverse' : ''} animate-fade-in`}>
+             <UserAvatar avatar={m.senderAvatar} size="sm" role={m.isAi ? 'bot' : 'student'} />
+             <div className={`max-w-[80%] p-4 rounded-2xl text-sm ${m.senderId === user.uid ? 'bg-blue-600 text-white' : 'bg-slate-900 border border-white/5 text-slate-200'}`}>
+                {m.senderId !== user.uid && <p className="text-[9px] font-bold text-cyan-400 mb-1 uppercase">{m.senderName}</p>}
+                <ReactMarkdown className="prose prose-invert max-w-none text-sm leading-relaxed">{m.text}</ReactMarkdown>
+             </div>
+          </div>
+        ))}
+        {isTyping && <div className="flex gap-3 animate-pulse"><UserAvatar avatar="🤖" size="sm" role="bot" /><div className="bg-slate-900 p-4 rounded-2xl"><Loader2 className="animate-spin text-blue-400" size={14} /></div></div>}
+        <div ref={endRef} />
+      </div>
+      <form onSubmit={onSend} className="mt-4 relative">
+        <input type="text" value={input} onChange={e => setInput(e.target.value)} placeholder="Question au groupe ou au Bot..." className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-white outline-none focus:ring-1 focus:ring-blue-500" />
+        <button type="submit" className="absolute right-3 top-3 p-2 bg-blue-600 rounded-xl text-white shadow-lg"><Send size={18} /></button>
+      </form>
+    </div>
+  );
+};
+
+const FilesView = () => {
+  const [res, setRes] = useState<Resource[]>([]);
+  useEffect(() => dbService.subscribeToResources(setRes), []);
+  return (
+    <div className="space-y-4">
+      <h3 className="text-[10px] font-black uppercase tracking-widest text-amber-400 px-2">Ressources Partagées</h3>
+      {res.map(f => (
+        <div key={f.id} className="glass p-5 rounded-2xl flex items-center justify-between border-white/5">
+          <div className="flex items-center gap-4">
+             <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-[10px] font-black text-amber-500 border border-amber-500/20">{f.type}</div>
+             <div><h4 className="text-sm font-bold text-white">{f.title}</h4><p className="text-[10px] text-slate-500 mt-1">{f.author} • {f.size}</p></div>
+          </div>
+          <a href={f.url} download className="p-2 text-slate-500 hover:text-white"><Download size={20} /></a>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const ProfileView = ({ user }: { user: User }) => (
+  <div className="space-y-10 py-10 text-center animate-fade-in">
+    <UserAvatar avatar={user.avatar} size="xl" role={user.role} />
+    <div>
+      <h2 className="text-3xl font-black text-white">{user.name}</h2>
+      <p className="text-[10px] font-bold text-pink-500 uppercase tracking-widest mt-3">{user.role}</p>
+    </div>
+    <div className="px-6">
+      <button onClick={() => dbService.fullReset()} className="w-full glass p-5 rounded-[2rem] flex items-center justify-center gap-3 text-red-400 font-bold border-red-500/10 hover:bg-red-500/5 transition-all">
+        <LogOut size={20} /> Déconnexion
+      </button>
+    </div>
+  </div>
+);
+
+// --- COMPOSANT PRINCIPAL ---
+
+export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
-  const [invitationCode, setInvitationCode] = useState("");
-  const [pseudo, setPseudo] = useState("");
-  const [pin, setPin] = useState("");
-  const [authError, setAuthError] = useState("");
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [isOnline, setIsOnline] = useState(false);
-  
-  // État pour l'animation Nan-ju
-  const [showSplash, setShowSplash] = useState(false);
+  const [formData, setFormData] = useState({ pseudo: "", pin: "", code: "" });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('g5_session_v1');
-    if (saved) {
-      setUser(JSON.parse(saved));
-      // Déclenche l'animation au rechargement si déjà connecté
-      triggerSplash();
-    }
-    setIsOnline(dbService.isFirebaseActive());
+    if (saved) setUser(JSON.parse(saved));
   }, []);
-
-  const triggerSplash = () => {
-    setShowSplash(true);
-    // Durée de l'animation : 2.5 secondes
-    setTimeout(() => setShowSplash(false), 2500);
-  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthError("");
-    setIsLoggingIn(true);
-
-    const code = invitationCode.trim();
-    let role: 'student' | 'admin' = 'student';
-
-    if (code === INVITATION_CODE) {
-      role = 'student';
-    } else if (code === ADMIN_CODE) {
-      role = 'admin';
-    } else {
-      setAuthError("Code d'accès invalide.");
-      setIsLoggingIn(false);
-      return;
+    setError(""); setLoading(true);
+    if (formData.code !== "G5L1-2025-CHINE-X" && formData.code !== "ADMIN-G5-MASTER") {
+      setError("Code d'accès invalide."); setLoading(false); return;
     }
-
-    if (pseudo.trim().length < 2) {
-      setAuthError("Le pseudo doit contenir au moins 2 caractères.");
-      setIsLoggingIn(false);
-      return;
-    }
-
-    if (pin.length !== 4 || isNaN(Number(pin))) {
-      setAuthError("Le PIN doit comporter 4 chiffres.");
-      setIsLoggingIn(false);
-      return;
-    }
-
     try {
-      const userData = await dbService.getOrCreateUser(pseudo, role, "🐲", pin);
-      setUser(userData);
-      localStorage.setItem('g5_session_v1', JSON.stringify(userData));
-      // Déclenche l'animation après une connexion réussie
-      triggerSplash();
-    } catch (err: any) {
-      console.error(err);
-      if (err.message.includes("Code PIN")) {
-        setAuthError("Ce pseudo existe déjà avec un autre code PIN.");
-      } else if (err.message.includes("Limite")) {
-        setAuthError(err.message);
-      } else {
-        setAuthError("Erreur de connexion serveur. Réessayez.");
-      }
-    } finally {
-      setIsLoggingIn(false);
-    }
+      const u = await dbService.getOrCreateUser(formData.pseudo, formData.code.includes("ADMIN") ? "admin" : "student", "🐲", formData.pin);
+      setUser(u); localStorage.setItem('g5_session_v1', JSON.stringify(u));
+    } catch (err: any) { setError(err.message); } finally { setLoading(false); }
   };
 
-  const updateProfileAvatar = async (newAvatar: string) => {
-     if(user) {
-        await dbService.updateUserAvatar(user.uid, newAvatar);
-        const updatedUser = { ...user, avatar: newAvatar };
-        setUser(updatedUser);
-        localStorage.setItem('g5_session_v1', JSON.stringify(updatedUser));
-        alert("Photo de profil mise à jour avec succès !");
-     }
-  };
-
-  const resetAllData = async () => {
-    if (window.confirm("Réinitialiser l'application ? (Déconnexion + Nettoyage cache)")) {
-      await dbService.fullReset(user?.uid);
-      setUser(null);
-      setPseudo("");
-      setPin("");
-      setInvitationCode("");
-      setActiveTab(AppTab.DASHBOARD);
-    }
-  };
-
-  // ECRAN DE CONNEXION (Si pas d'utilisateur)
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden bg-slate-950">
-        {/* Animated Background Blobs */}
-        <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
-        <div className="absolute top-0 -right-4 w-72 h-72 bg-cyan-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-emerald-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
-
-        <div className="w-full max-w-md glass p-10 rounded-[2.5rem] space-y-8 animate-fade-in border border-white/10 relative z-10 shadow-2xl shadow-purple-900/20">
-          <div className="text-center space-y-4">
-            <div className="w-24 h-24 bg-gradient-to-tr from-cyan-400 via-blue-500 to-purple-600 rounded-3xl flex items-center justify-center mx-auto shadow-lg shadow-blue-500/30 transform rotate-3">
-               <span className="text-5xl drop-shadow-md">🐲</span>
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="w-full max-w-md glass p-10 rounded-[3rem] space-y-8 animate-fade-in border-white/5">
+          <div className="text-center"><h1 className="text-4xl font-black text-white tracking-tighter uppercase">G5 L1</h1><p className="text-[10px] font-bold text-cyan-400 mt-2 uppercase">Cloud System</p></div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input type="text" placeholder="Pseudo" value={formData.pseudo} onChange={e=>setFormData({...formData, pseudo: e.target.value})} className="w-full bg-slate-900 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:ring-1 focus:ring-blue-500" required />
+            <div className="grid grid-cols-2 gap-4">
+              <input type="password" placeholder="PIN" maxLength={4} value={formData.pin} onChange={e=>setFormData({...formData, pin: e.target.value})} className="w-full bg-slate-900 border border-white/5 rounded-2xl px-6 py-4 text-white text-center font-mono" required />
+              <input type="password" placeholder="Code" value={formData.code} onChange={e=>setFormData({...formData, code: e.target.value})} className="w-full bg-slate-900 border border-white/5 rounded-2xl px-6 py-4 text-white text-center" required />
             </div>
-            <div>
-                <h1 className="text-4xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-white via-cyan-100 to-blue-200 tracking-tight">PORTAIL G5</h1>
-                <p className="text-blue-400 text-xs font-bold uppercase tracking-[0.2em] mt-2">Licence 1 Chinois • 2025</p>
-            </div>
-          </div>
-          
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <input 
-                  type="text" 
-                  value={pseudo}
-                  onChange={(e) => setPseudo(e.target.value)}
-                  placeholder="Votre Pseudo"
-                  className="w-full bg-slate-900/60 border border-slate-700/50 rounded-2xl px-5 py-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 tracking-wide transition-all focus:bg-slate-900 placeholder:text-slate-500"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <input 
-                    type="password" 
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    placeholder="PIN"
-                    maxLength={4}
-                    className="w-full bg-slate-900/60 border border-slate-700/50 rounded-2xl px-5 py-4 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 text-center tracking-widest font-mono transition-all focus:bg-slate-900 placeholder:text-slate-500"
-                    required
-                />
-                 <input 
-                  type="password" 
-                  value={invitationCode}
-                  onChange={(e) => setInvitationCode(e.target.value)}
-                  placeholder="Code"
-                  className="w-full bg-slate-900/60 border border-slate-700/50 rounded-2xl px-5 py-4 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 text-center text-xs tracking-wider transition-all focus:bg-slate-900 placeholder:text-slate-500"
-                  required
-                />
-              </div>
-            </div>
-
-            {authError && <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl"><p className="text-red-300 text-xs font-bold text-center uppercase">{authError}</p></div>}
-            
-            <button 
-              type="submit" 
-              disabled={isLoggingIn}
-              className={`w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center ${isLoggingIn ? 'opacity-70 cursor-wait' : ''}`}
-            >
-              {isLoggingIn ? <Loader2 className="animate-spin" /> : "Entrer dans le Portail"}
-            </button>
+            {error && <p className="text-red-400 text-[10px] text-center font-bold uppercase">{error}</p>}
+            <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl transition-all shadow-xl shadow-blue-900/20">{loading ? <Loader2 className="animate-spin mx-auto" /> : "Entrer"}</button>
           </form>
         </div>
       </div>
     );
   }
 
-  // ECRAN SPLASH "NAN-JU" (Si connecté et showSplash est true)
-  if (showSplash) {
-    return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 relative overflow-hidden z-50">
-            {/* Background Effects */}
-            <div className="absolute top-0 -left-4 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[30rem] h-[30rem] bg-blue-600 rounded-full mix-blend-multiply filter blur-[100px] opacity-10 animate-pulse"></div>
-            <div className="absolute bottom-0 -right-4 w-96 h-96 bg-cyan-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
-            
-            <div className="text-center z-10 animate-fade-in scale-110">
-                 <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-200 via-blue-400 to-purple-400 tracking-tighter drop-shadow-[0_0_25px_rgba(56,189,248,0.3)]">
-                    Nan-ju
-                 </h1>
-                 <p className="text-blue-300/60 text-xs font-bold uppercase tracking-[0.8em] mt-6 animate-pulse ml-2">Initialisation...</p>
-            </div>
-        </div>
-    );
-  }
-
-  // Active Gradient Logic for main container
-  const activeGradient = THEME_COLORS[activeTab];
-
   return (
-    <div className="min-h-screen pb-32 max-w-2xl mx-auto relative">
-      <header className="sticky top-0 z-40 glass-dark px-6 py-4 flex justify-between items-center border-b border-white/5 backdrop-blur-xl">
+    <div className="min-h-screen pb-32 max-w-2xl mx-auto flex flex-col px-4">
+      <header className="sticky top-0 z-40 glass-dark py-4 flex justify-between items-center border-b border-white/5 mt-4 rounded-2xl px-4">
         <div className="flex items-center gap-3">
              <UserAvatar avatar={user.avatar} size="sm" role={user.role} />
-             <div>
-                 <h2 className="text-sm font-bold text-white tracking-wide leading-none">{user.name}</h2>
-                 <div className="flex items-center gap-1.5 mt-0.5">
-                    <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-orange-500'}`} />
-                    <span className={`text-[9px] font-bold uppercase tracking-wider bg-gradient-to-r ${activeGradient} text-gradient`}>{activeTab}</span>
-                 </div>
-             </div>
+             <div><h2 className="text-sm font-bold text-white">{user.name}</h2><p className="text-[9px] font-bold text-emerald-400 flex items-center gap-1 uppercase"><Wifi size={10} /> Sync OK</p></div>
         </div>
-        <div className="flex gap-2">
-          {activeTab === AppTab.CHAT && (
-            <button 
-              onClick={() => { 
-                if(window.confirm("Vider les messages affichés ?")) { 
-                  window.dispatchEvent(new Event('trigger-chat-clear'));
-                }
-              }} 
-              className="p-2.5 glass rounded-full text-slate-400 hover:text-red-400 transition-all hover:bg-white/5"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
-          <div className="p-2.5 glass rounded-full text-slate-500 flex items-center justify-center">
-             {isOnline ? <Wifi size={16} className="text-emerald-400 drop-shadow-[0_0_5px_rgba(52,211,153,0.5)]" /> : <WifiOff size={16} className="text-orange-500" />}
-          </div>
-        </div>
+        <div className="text-slate-700 font-black text-xl italic tracking-tighter">G5</div>
       </header>
 
-      <main className="p-4 sm:p-6 overflow-x-hidden">
-        {activeTab === AppTab.DASHBOARD && <DashboardView user={user} />}
-        {activeTab === AppTab.CHAT && <ChatView currentUser={user} onMemoryUpdate={(mem) => { const u = {...user, aiMemory: mem}; setUser(u); localStorage.setItem('g5_session_v1', JSON.stringify(u)); }} />}
-        {activeTab === AppTab.FILES && <FilesView user={user} />}
-        {activeTab === AppTab.QUIZ && <QuizView />}
-        {activeTab === AppTab.PROFILE && <ProfileView user={user} onUpdateAvatar={updateProfileAvatar} onLogout={() => { setUser(null); localStorage.removeItem('g5_session_v1'); }} onReset={resetAllData} />}
-        {activeTab === AppTab.ABOUT && <AboutView />}
+      <main className="flex-1 mt-6">
+        {activeTab === AppTab.DASHBOARD && <DashboardView />}
+        {activeTab === AppTab.CHAT && <ChatView user={user} />}
+        {activeTab === AppTab.FILES && <FilesView />}
+        {activeTab === AppTab.PROFILE && <ProfileView user={user} />}
       </main>
 
-      {/* FLOATING DOCK NAVIGATION */}
-      <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-auto">
-        <div className="glass-nav px-6 py-3 rounded-full flex items-center gap-4 sm:gap-6 shadow-2xl ring-1 ring-white/10">
-          <NavBtn id={AppTab.DASHBOARD} active={activeTab === AppTab.DASHBOARD} icon={<LayoutDashboard size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.DASHBOARD)} color="text-cyan-400" />
-          <NavBtn id={AppTab.CHAT} active={activeTab === AppTab.CHAT} icon={<MessageSquare size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.CHAT)} color="text-emerald-400" />
-          <NavBtn id={AppTab.FILES} active={activeTab === AppTab.FILES} icon={<Files size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.FILES)} color="text-amber-400" />
-          <NavBtn id={AppTab.QUIZ} active={activeTab === AppTab.QUIZ} icon={<Gamepad2 size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.QUIZ)} color="text-violet-400" />
-          <div className="w-px h-8 bg-white/10 mx-1"></div>
-          <NavBtn id={AppTab.ABOUT} active={activeTab === AppTab.ABOUT} icon={<HelpCircle size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.ABOUT)} color="text-indigo-400" />
-          <NavBtn id={AppTab.PROFILE} active={activeTab === AppTab.PROFILE} icon={<UserIcon size={22} strokeWidth={2.5} />} onClick={() => setActiveTab(AppTab.PROFILE)} color="text-pink-400" />
+      <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
+        <div className="glass-nav px-8 py-4 rounded-full flex items-center gap-6">
+          <NavBtn active={activeTab === AppTab.DASHBOARD} icon={<LayoutDashboard size={22} />} onClick={() => setActiveTab(AppTab.DASHBOARD)} color="text-cyan-400" />
+          <NavBtn active={activeTab === AppTab.CHAT} icon={<MessageSquare size={22} />} onClick={() => setActiveTab(AppTab.CHAT)} color="text-emerald-400" />
+          <NavBtn active={activeTab === AppTab.FILES} icon={<Files size={22} />} onClick={() => setActiveTab(AppTab.FILES)} color="text-amber-400" />
+          <div className="w-[1px] h-6 bg-white/10 mx-2"></div>
+          <NavBtn active={activeTab === AppTab.PROFILE} icon={<UserIcon size={22} />} onClick={() => setActiveTab(AppTab.PROFILE)} color="text-pink-400" />
         </div>
       </nav>
     </div>
   );
-};
-
-const NavBtn = ({ id, active, icon, onClick, color }: { id: string, active: boolean, icon: React.ReactNode, onClick: () => void, color: string }) => {
-    // Determine gradient based on ID
-    let activeBg = "bg-white/10";
-    if (id === AppTab.DASHBOARD) activeBg = "bg-cyan-500/20 shadow-cyan-500/30";
-    if (id === AppTab.CHAT) activeBg = "bg-emerald-500/20 shadow-emerald-500/30";
-    if (id === AppTab.FILES) activeBg = "bg-amber-500/20 shadow-amber-500/30";
-    if (id === AppTab.QUIZ) activeBg = "bg-violet-500/20 shadow-violet-500/30";
-    if (id === AppTab.PROFILE) activeBg = "bg-pink-500/20 shadow-pink-500/30";
-    if (id === AppTab.ABOUT) activeBg = "bg-indigo-500/20 shadow-indigo-500/30";
-
-    return (
-    <button onClick={onClick} className="relative group">
-        <div className={`p-2.5 rounded-2xl transition-all duration-300 ${active ? `${color} ${activeBg} scale-110 shadow-[0_0_15px_rgba(0,0,0,0.2)]` : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>
-        {icon}
-        </div>
-        {active && <div className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${color.replace('text-', 'bg-')}`}></div>}
-    </button>
-    );
-};
-
-const AboutView = () => {
-    return (
-        <div className="space-y-8 animate-fade-in pt-6 pb-20">
-             <div className="text-center space-y-2 mb-8">
-                <div className="inline-block p-4 rounded-full bg-slate-900 border border-white/5 shadow-2xl mb-2">
-                    <Info className="text-indigo-400" size={32} />
-                </div>
-                <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-blue-400 tracking-tight">Guide du Portail</h2>
-                <p className="text-slate-400 text-sm font-medium">Découvrez les fonctionnalités de votre espace G5</p>
-            </div>
-
-            <div className="grid gap-6">
-                <div className="glass p-6 rounded-[2rem] border border-white/5 hover:border-cyan-500/30 transition-all">
-                    <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 bg-cyan-500/10 rounded-2xl text-cyan-400"><LayoutDashboard size={24} /></div>
-                        <h3 className="text-lg font-bold text-white">Tableau de Bord</h3>
-                    </div>
-                    <p className="text-sm text-slate-400 leading-relaxed">
-                        Le point central de l'application. Consultez les <strong>annonces importantes</strong> (examens, changements de salle), visualisez l'<strong>emploi du temps</strong> commun et découvrez votre <strong>sagesse quotidienne</strong> grâce au Fortune Cookie généré par IA.
-                    </p>
-                </div>
-
-                <div className="glass p-6 rounded-[2rem] border border-white/5 hover:border-emerald-500/30 transition-all">
-                    <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 bg-emerald-500/10 rounded-2xl text-emerald-400"><MessageSquare size={24} /></div>
-                        <h3 className="text-lg font-bold text-white">Messagerie & IA</h3>
-                    </div>
-                    <p className="text-sm text-slate-400 leading-relaxed mb-2">
-                        Deux modes de communication disponibles :
-                    </p>
-                    <ul className="text-sm text-slate-400 space-y-2 list-disc list-inside">
-                        <li><strong>Groupe :</strong> Chat public avec tous les étudiants. Mentionnez <code>@laoshibot</code> pour faire intervenir l'IA.</li>
-                        <li><strong>Tuteur IA :</strong> Chat privé avec "Lǎoshī Bot". Il se souvient de votre progression et adapte ses explications.</li>
-                    </ul>
-                </div>
-
-                <div className="glass p-6 rounded-[2rem] border border-white/5 hover:border-amber-500/30 transition-all">
-                    <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 bg-amber-500/10 rounded-2xl text-amber-400"><Files size={24} /></div>
-                        <h3 className="text-lg font-bold text-white">Documents</h3>
-                    </div>
-                    <p className="text-sm text-slate-400 leading-relaxed">
-                        Bibliothèque partagée pour les cours, TD et annales d'examens. Vous pouvez télécharger les fichiers mis à disposition. La limite de taille pour les envois est fixée à <strong>10 Mo</strong>.
-                    </p>
-                </div>
-
-                <div className="glass p-6 rounded-[2rem] border border-white/5 hover:border-violet-500/30 transition-all">
-                    <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 bg-violet-500/10 rounded-2xl text-violet-400"><Gamepad2 size={24} /></div>
-                        <h3 className="text-lg font-bold text-white">Arcade</h3>
-                    </div>
-                    <p className="text-sm text-slate-400 leading-relaxed">
-                        Zone d'entraînement ludique générée par l'IA :
-                    </p>
-                    <ul className="text-sm text-slate-400 space-y-2 list-disc list-inside mt-2">
-                        <li><strong>Quiz Rapide :</strong> QCM sur la grammaire et la culture.</li>
-                        <li><strong>Mémoire Impériale :</strong> Jeu d'association de cartes (Caractère ↔ Définition) chronométré.</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const DashboardView = ({ user }: { user: User }) => {
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [delegates, setDelegates] = useState<Delegate[]>([]);
-  const [scheduleUrl, setScheduleUrl] = useState<string | null>(null);
-  const [fortune, setFortune] = useState<Fortune | null>(null);
-  const [loadingFortune, setLoadingFortune] = useState(false);
-  
-  const [showDelegateModal, setShowDelegateModal] = useState(false);
-  const [candidateUsers, setCandidateUsers] = useState<User[]>([]);
-  const [showNewsModal, setShowNewsModal] = useState(false);
-  const [newsTitle, setNewsTitle] = useState("");
-  const [newsContent, setNewsContent] = useState("");
-  const [newsTag, setNewsTag] = useState<'Urgent' | 'Info' | 'Examen'>('Info');
-  const [newsImage, setNewsImage] = useState<string | null>(null);
-  const [isGeneratingImg, setIsGeneratingImg] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const isAdmin = user.role === 'admin';
-  const canManageNews = user.role === 'admin' || user.role === 'delegate';
-  
-  useEffect(() => {
-    const unsubNews = dbService.subscribeToNews(setNews);
-    const unsubDelegates = dbService.subscribeToDelegates(setDelegates);
-    dbService.getScheduleImage().then(setScheduleUrl);
-    return () => { unsubNews(); unsubDelegates(); };
-  }, []);
-
-  const handleCrackCookie = async () => {
-    setLoadingFortune(true);
-    const result = await geminiService.generateFortune();
-    setFortune(result);
-    setLoadingFortune(false);
-  };
-
-  const deleteNews = async (id: string) => { if (window.confirm("Supprimer cette actualité ?")) await dbService.deleteNews(id); };
-  const openNewsModal = () => { setNewsTitle(""); setNewsContent(""); setNewsTag("Info"); setNewsImage(null); setShowNewsModal(true); };
-  const handleGenerateImage = async () => {
-    if (!newsTitle || !newsContent) { alert("Veuillez remplir le titre et le contenu d'abord."); return; }
-    setIsGeneratingImg(true);
-    try { const img = await geminiService.generateAnnouncementImage(newsTitle, newsContent); if (img) setNewsImage(img); else alert("L'IA n'a pas pu générer d'image."); } 
-    catch (e) { console.error(e); alert("Erreur technique lors de la génération."); } finally { setIsGeneratingImg(false); }
-  };
-  const submitNews = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await dbService.addNews({ title: newsTitle, content: newsContent, date: Date.now(), tag: newsTag, imageUrl: newsImage || undefined });
-    setShowNewsModal(false);
-  };
-  const handleScheduleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (file) { if (file.size > MAX_FILE_SIZE) { alert("L'image est trop volumineuse (Max 10MB)."); return; }
-      const reader = new FileReader(); reader.onloadend = async () => { const base64 = reader.result as string; await dbService.saveScheduleImage(base64); setScheduleUrl(base64); }; reader.readAsDataURL(file); }
-  };
-  const openDelegateSelection = async () => { const users = await dbService.getAllUsers(); setCandidateUsers(users); setShowDelegateModal(true); };
-  const handleSelectDelegate = async (candidate: User, role: string) => { await dbService.addDelegate({ name: candidate.name, role: role, avatar: candidate.avatar }); setShowDelegateModal(false); };
-  const deleteDelegate = async (id: string) => { if(confirm("Supprimer ce délégué ?")) await dbService.deleteDelegate(id); };
-
-  return (
-    <div className="space-y-8 animate-fade-in relative">
-      {/* MODALES */}
-      {showDelegateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="w-full max-w-sm glass-dark rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
-            <div className="p-6 border-b border-white/5 flex justify-between items-center bg-slate-900/50">
-               <h3 className="text-sm font-bold text-white uppercase tracking-widest bg-gradient-to-r from-purple-400 to-pink-400 text-gradient">Nommer Délégué</h3>
-               <button onClick={() => setShowDelegateModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={16} /></button>
-            </div>
-            <div className="overflow-y-auto p-4 space-y-2 custom-scrollbar">
-              {candidateUsers.map(u => (
-                <div key={u.uid} className="glass p-3 rounded-2xl flex items-center justify-between border border-white/5">
-                   <div className="flex items-center gap-3">
-                      <UserAvatar avatar={u.avatar} size="sm" role={u.role} />
-                      <p className="text-xs font-bold text-slate-200">{u.name}</p>
-                   </div>
-                   <div className="flex gap-1">
-                      <button onClick={() => handleSelectDelegate(u, 'Délégué')} className="px-3 py-1 bg-purple-500/20 text-purple-400 rounded-lg text-[10px] font-bold uppercase hover:bg-purple-500/40">Titulaire</button>
-                      <button onClick={() => handleSelectDelegate(u, 'Suppléant')} className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-500/40">Suppléant</button>
-                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showNewsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="w-full max-w-md glass-dark rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden">
-            <div className="p-6 border-b border-white/5 flex justify-between items-center bg-slate-900/50">
-               <h3 className="text-sm font-bold text-white uppercase tracking-widest bg-gradient-to-r from-cyan-400 to-blue-400 text-gradient">Nouvelle Annonce</h3>
-               <button onClick={() => setShowNewsModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={16} /></button>
-            </div>
-            <form onSubmit={submitNews} className="p-6 space-y-4">
-              <input type="text" value={newsTitle} onChange={(e) => setNewsTitle(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm" placeholder="Titre" required />
-              <textarea value={newsContent} onChange={(e) => setNewsContent(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm h-24" placeholder="Contenu" required />
-              <div className="flex gap-2">
-                  {['Info', 'Urgent', 'Examen'].map((tag) => (
-                    <button key={tag} type="button" onClick={() => setNewsTag(tag as any)} className={`flex-1 py-2 rounded-lg text-[10px] font-bold uppercase transition-all border ${newsTag === tag ? 'bg-white/10 border-white text-white' : 'border-slate-800 text-slate-500'}`}>{tag}</button>
-                  ))}
-              </div>
-              <div className="space-y-2">
-                 {newsImage ? (
-                   <div className="relative aspect-video rounded-xl overflow-hidden border border-white/10"><img src={newsImage} alt="Preview" className="w-full h-full object-cover" /></div>
-                 ) : (
-                   <button type="button" onClick={handleGenerateImage} disabled={isGeneratingImg || !newsTitle} className="w-full py-4 border border-dashed border-slate-700 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-500/5 transition-all text-xs font-bold uppercase text-slate-500 hover:text-emerald-400">
-                      {isGeneratingImg ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} Générer Image IA
-                   </button>
-                 )}
-              </div>
-              <button type="submit" className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-cyan-500/20">Publier</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* FORTUNE COOKIE */}
-      <section className="animate-fade-in">
-        <div className="flex items-center gap-2 mb-4">
-           <div className="h-px w-8 bg-amber-500/30"></div>
-           <h3 className="text-[10px] font-bold text-amber-500/80 uppercase tracking-[0.2em]">Sagesse Quotidienne</h3>
-        </div>
-        
-        {!fortune ? (
-          <button 
-            onClick={handleCrackCookie}
-            disabled={loadingFortune}
-            className="w-full glass p-8 rounded-[2rem] border border-amber-500/10 group hover:border-amber-500/40 transition-all relative overflow-hidden"
-          >
-             <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-             <div className="flex flex-col items-center gap-4 relative z-10">
-                {loadingFortune ? <Loader2 size={32} className="text-amber-400 animate-spin" /> : <div className="text-5xl group-hover:scale-110 transition-transform duration-500 drop-shadow-[0_0_20px_rgba(245,158,11,0.5)]">🥠</div>}
-                <p className="text-amber-100 font-bold text-sm tracking-wide">OUVRIR LE BISCUIT</p>
-             </div>
-          </button>
-        ) : (
-          <div className="glass p-8 rounded-[2rem] border border-amber-500/30 relative overflow-hidden bg-gradient-to-b from-amber-950/40 to-transparent shadow-[0_0_30px_rgba(245,158,11,0.1)]">
-             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-amber-500/50 to-transparent"></div>
-             <button onClick={() => setFortune(null)} className="absolute top-4 right-4 text-amber-500/50 hover:text-amber-400"><RefreshCw size={14} /></button>
-             
-             <div className="text-center mb-8">
-               <h4 className="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-br from-amber-100 to-amber-400 tracking-wide mb-2 drop-shadow-sm">{fortune.chengyu}</h4>
-               <p className="text-amber-500 font-mono text-sm opacity-90">{fortune.pinyin}</p>
-               <div className="w-12 h-0.5 bg-amber-500/30 mx-auto my-4"></div>
-               <p className="text-amber-100 text-sm font-medium leading-relaxed italic">"{fortune.translation}"</p>
-             </div>
-
-             <div className="bg-slate-950/40 rounded-2xl p-4 flex gap-4 items-start border border-amber-500/10 backdrop-blur-sm">
-                <div className="p-2.5 bg-amber-500/10 rounded-xl text-amber-400 shrink-0 border border-amber-500/20">
-                  <Dna size={18} />
-                </div>
-                <div>
-                   <p className="text-[9px] text-amber-500/70 font-bold uppercase tracking-widest mb-1">Conseil Astral</p>
-                   <p className="text-slate-300 text-xs leading-relaxed">{fortune.advice}</p>
-                </div>
-             </div>
-          </div>
-        )}
-      </section>
-
-      {/* ANNONCES */}
-      <section className="space-y-5">
-        <div className="flex justify-between items-end px-1">
-          <div className="flex items-center gap-2">
-             <div className="h-px w-8 bg-cyan-500/30"></div>
-             <h3 className="text-[10px] font-bold text-cyan-400 uppercase tracking-[0.2em]">Tableau d'affichage</h3>
-          </div>
-          {canManageNews && <button onClick={openNewsModal} className="text-cyan-400 hover:text-white transition-colors bg-cyan-500/10 hover:bg-cyan-500 p-2 rounded-full"><PlusCircle size={16} /></button>}
-        </div>
-
-        <div className="grid gap-4">
-          {news.length > 0 ? news.map(item => (
-            <div key={item.id} className="glass rounded-[2rem] border border-white/5 overflow-hidden group hover:border-cyan-500/30 transition-all hover:shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-              {item.imageUrl && (
-                <div className="h-40 w-full relative">
-                  <img src={item.imageUrl} alt="Cover" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-[#020617]/40 to-transparent" />
-                  <div className="absolute top-4 right-4">
-                     {canManageNews && <button onClick={() => deleteNews(item.id)} className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white/50 hover:text-red-400 border border-white/10"><Trash2 size={12} /></button>}
-                  </div>
-                </div>
-              )}
-              
-              <div className="p-6 relative">
-                 <div className="flex items-start justify-between mb-2">
-                    <span className={`text-[9px] font-bold px-3 py-1 rounded-full uppercase tracking-wider border ${
-                        item.tag === 'Urgent' ? 'bg-red-500/10 border-red-500/30 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 
-                        item.tag === 'Examen' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.2)]' : 
-                        'bg-blue-500/10 border-blue-500/30 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.2)]'
-                    }`}>{item.tag}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">{new Date(item.date).toLocaleDateString()}</span>
-                 </div>
-                 <h4 className="text-lg font-bold text-white mb-2 leading-tight group-hover:text-cyan-400 transition-colors">{item.title}</h4>
-                 <p className="text-sm text-slate-400 leading-relaxed font-light">{item.content}</p>
-              </div>
-            </div>
-          )) : (
-            <div className="glass p-10 rounded-[2rem] text-center border-dashed border-2 border-white/5">
-              <p className="text-slate-600 text-xs font-bold uppercase tracking-widest">Aucune annonce</p>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* EMPLOI DU TEMPS */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between px-1">
-           <div className="flex items-center gap-2">
-             <div className="h-px w-8 bg-blue-500/30"></div>
-             <h3 className="text-[10px] font-bold text-blue-400 uppercase tracking-[0.2em]">Planning</h3>
-           </div>
-           {isAdmin && (
-             <div className="relative">
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleScheduleUpload} />
-                <button onClick={() => fileInputRef.current?.click()} className="text-blue-400 hover:text-white transition-colors p-2 bg-blue-500/10 hover:bg-blue-500 rounded-full"><Edit size={14} /></button>
-             </div>
-           )}
-        </div>
-        
-        <div className="glass rounded-[2rem] overflow-hidden aspect-[16/10] relative group cursor-pointer border border-white/5 shadow-2xl hover:shadow-blue-500/10 transition-all">
-          {scheduleUrl ? (
-            <img src={scheduleUrl} alt="Schedule" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/40">
-                <ImageIcon size={32} className="text-slate-700 mb-2" />
-                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">Non défini</p>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* DÉLÉGUÉS */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between px-1">
-           <div className="flex items-center gap-2">
-             <div className="h-px w-8 bg-purple-500/30"></div>
-             <h3 className="text-[10px] font-bold text-purple-400 uppercase tracking-[0.2em]">Représentants</h3>
-           </div>
-           {isAdmin && <button onClick={openDelegateSelection} className="text-purple-400 hover:text-white transition-colors p-2 bg-purple-500/10 hover:bg-purple-500 rounded-full"><UserPlus size={14} /></button>}
-        </div>
-        
-        <div className="grid grid-cols-2 gap-4">
-          {delegates.map((d) => (
-            <div key={d.id} className="glass p-4 rounded-3xl flex items-center gap-4 border border-white/5 hover:bg-white/5 transition-all relative group hover:border-purple-500/30 hover:shadow-[0_0_15px_rgba(168,85,247,0.1)]">
-              {isAdmin && <button onClick={() => deleteDelegate(d.id)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-400"><Trash2 size={12} /></button>}
-              <UserAvatar avatar={d.avatar} size="md" className="rounded-2xl border-white/5" role={d.role.includes('Délégué') ? 'delegate' : 'student'} />
-              <div>
-                <p className="text-xs font-bold text-white truncate">{d.name}</p>
-                <p className="text-[9px] text-purple-400 font-bold uppercase tracking-tight opacity-70">{d.role}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-};
-
-const ChatView = ({ currentUser, onMemoryUpdate }: { currentUser: User, onMemoryUpdate: (mem: string) => void }) => {
-  const [mode, setMode] = useState<'public' | 'private'>('public');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [streamingAiResponse, setStreamingAiResponse] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let unsub: () => void;
-    if (mode === 'public') unsub = dbService.subscribeToPublicMessages(setMessages);
-    else unsub = dbService.subscribeToPrivateMessages(currentUser.uid, setMessages);
-    return () => { if(unsub) unsub(); };
-  }, [mode, currentUser.uid]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping, streamingAiResponse]);
-
-  useEffect(() => {
-    const handleClear = () => {
-       if (mode === 'public') dbService.clearPublicMessages();
-       else dbService.clearPrivateMessages(currentUser.uid);
-    };
-    window.addEventListener('trigger-chat-clear', handleClear);
-    return () => window.removeEventListener('trigger-chat-clear', handleClear);
-  }, [mode, currentUser.uid]);
-
-  const handleSend = async (e: React.FormEvent) => {
-     e.preventDefault();
-     if (!input.trim()) return;
-     const text = input.trim();
-     setInput("");
-
-     const msgData = { senderId: currentUser.uid, senderName: currentUser.name, senderAvatar: currentUser.avatar, text: text, timestamp: Date.now(), isAi: false };
-     
-     // OPTIMISATION: Affichage immédiat du message utilisateur
-     const optimisticMsg = { ...msgData, id: `temp-${Date.now()}`, status: 'sending' };
-     setMessages(prev => [...prev, optimisticMsg as Message]);
-     
-     // Contexte pour l'IA (incluant le message actuel non encore en DB)
-     const aiContext = [...messages, { ...msgData, id: 'temp-ai-context' } as Message];
-
-     if (mode === 'public') {
-        await dbService.addPublicMessage(msgData);
-        
-        // DÉTECTION MENTION BOT
-        if (text.toLowerCase().includes('@laoshibot') || text.toLowerCase().includes('@bot')) {
-            setIsTyping(true);
-            try {
-                let fullResponse = "";
-                let hasStartedStreaming = false;
-                const stream = geminiService.streamChatResponse(text, aiContext, "", currentUser.name);
-                
-                for await (const chunk of stream) {
-                    if (!hasStartedStreaming) {
-                        setIsTyping(false);
-                        setStreamingAiResponse("");
-                        hasStartedStreaming = true;
-                    }
-                    fullResponse += chunk;
-                    setStreamingAiResponse(prev => (prev || "") + chunk);
-                }
-                
-                // Sauvegarde finale en DB
-                await dbService.addPublicMessage({ 
-                    senderId: 'laoshibot', 
-                    senderName: 'Lǎoshī Bot', 
-                    senderAvatar: '👨‍🏫', 
-                    text: fullResponse, 
-                    timestamp: Date.now(), 
-                    isAi: true 
-                });
-            } catch (err) { console.error(err); } finally { 
-                setIsTyping(false); 
-                setStreamingAiResponse(null); 
-            }
-        }
-     }
-     else {
-        await dbService.addPrivateMessage(currentUser.uid, msgData);
-        setIsTyping(true);
-        try {
-           let fullResponse = "";
-           let hasStartedStreaming = false;
-           const stream = geminiService.streamChatResponse(text, aiContext, currentUser.aiMemory, currentUser.name);
-           
-           for await (const chunk of stream) {
-               if (!hasStartedStreaming) {
-                    setIsTyping(false);
-                    setStreamingAiResponse("");
-                    hasStartedStreaming = true;
-               }
-               fullResponse += chunk;
-               setStreamingAiResponse(prev => (prev || "") + chunk);
-           }
-           
-           await dbService.addPrivateMessage(currentUser.uid, { senderId: 'laoshibot', senderName: 'Lǎoshī Bot', senderAvatar: '👨‍🏫', text: fullResponse, timestamp: Date.now(), isAi: true });
-           
-           geminiService.updateStudentProfile(currentUser.aiMemory || "", text, fullResponse).then(async (newMemory) => {
-             if (newMemory !== currentUser.aiMemory) { await dbService.updateUserAiMemory(currentUser.uid, newMemory); onMemoryUpdate(newMemory); }
-           });
-        } catch (err) { console.error(err); } finally { 
-            setIsTyping(false); 
-            setStreamingAiResponse(null);
-        }
-     }
-  };
-
-  const deleteMessage = async (msgId: string) => {
-      if(window.confirm("Supprimer ce message pour tout le monde ?")) {
-          if (mode === 'public') await dbService.deletePublicMessage(msgId);
-          else await dbService.clearPrivateMessages(currentUser.uid);
-      }
-  };
-
-  return (
-    <div className="flex flex-col h-[calc(100vh-140px)]">
-       <div className="flex bg-slate-950 p-1.5 rounded-full mb-6 border border-white/5 relative shadow-inner">
-          <button onClick={() => setMode('public')} className={`flex-1 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${mode === 'public' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Groupe</button>
-          <button onClick={() => setMode('private')} className={`flex-1 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${mode === 'private' ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg' : 'text-emerald-600 hover:text-emerald-400'}`}>Tuteur IA</button>
-       </div>
-       
-       {mode === 'private' && currentUser.aiMemory && (
-         <div className="mb-4 px-4 py-3 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl flex items-center gap-3 animate-fade-in">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            <p className="text-[10px] text-emerald-300/80 truncate font-mono">Analyse cognitive active...</p>
-         </div>
-       )}
-
-       <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
-          {messages.map((m) => {
-             const isOwn = m.senderId === currentUser.uid;
-             return (
-             <div key={m.id} className={`flex gap-4 ${isOwn ? 'flex-row-reverse' : ''} animate-fade-in group`}>
-                <UserAvatar avatar={m.senderAvatar} className={`shrink-0 ${m.isAi ? 'border-emerald-500/50 shadow-emerald-500/20' : ''}`} size="md" role={m.isAi ? 'bot' : 'student'} />
-                <div className="relative max-w-[80%]">
-                    <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-lg backdrop-blur-sm ${
-                        isOwn ? 'bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-tr-sm border border-blue-500/50' : 
-                        m.isAi ? 'bg-slate-900/80 border border-emerald-500/30 text-emerald-50 rounded-tl-sm shadow-[0_0_15px_rgba(16,185,129,0.05)]' : 
-                        'bg-slate-900/80 border border-white/10 text-slate-200 rounded-tl-sm'
-                        }`}>
-                        {!m.isAi && !isOwn && <p className="text-[9px] font-bold opacity-50 mb-1 uppercase tracking-wider text-cyan-400">{m.senderName}</p>}
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert prose-p:my-1 prose-headings:text-emerald-400 prose-strong:text-white prose-sm max-w-none">{m.text}</ReactMarkdown>
-                    </div>
-                    {isOwn && !m.isAi && mode === 'public' && (
-                        <button onClick={() => deleteMessage(m.id)} className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 bg-red-500/10 text-red-400 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:text-white" title="Supprimer">
-                            <Trash2 size={12} />
-                        </button>
-                    )}
-                </div>
-             </div>
-          )})}
-          
-          {/* VISUALISATION STREAMING IA */}
-          {streamingAiResponse && (
-              <div className="flex gap-4 animate-fade-in group">
-                <UserAvatar avatar="👨‍🏫" className="shrink-0 border-emerald-500/50 shadow-emerald-500/20" size="md" role="bot" />
-                <div className="relative max-w-[80%]">
-                    <div className="p-4 rounded-2xl text-sm leading-relaxed shadow-lg backdrop-blur-sm bg-slate-900/80 border border-emerald-500/30 text-emerald-50 rounded-tl-sm shadow-[0_0_15px_rgba(16,185,129,0.05)]">
-                        <p className="text-[9px] font-bold opacity-50 mb-1 uppercase tracking-wider text-emerald-400">Lǎoshī Bot (écrit...)</p>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert prose-p:my-1 prose-headings:text-emerald-400 prose-strong:text-white prose-sm max-w-none">{streamingAiResponse}</ReactMarkdown>
-                    </div>
-                </div>
-              </div>
-          )}
-
-          {isTyping && !streamingAiResponse && (
-             <div className="flex gap-4">
-                <div className="w-8 h-8 rounded-xl bg-emerald-900/50 flex items-center justify-center text-lg border border-emerald-500/30">🤖</div>
-                <div className="glass px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1.5 items-center">
-                   <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" />
-                   <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce delay-75" />
-                   <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce delay-150" />
-                </div>
-             </div>
-          )}
-          <div ref={messagesEndRef} />
-       </div>
-
-       <form onSubmit={handleSend} className="mt-4 relative">
-          <input 
-            type="text" 
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={mode === 'public' ? "Message au groupe..." : "Posez une question..."}
-            className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl pl-5 pr-12 py-4 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 text-sm placeholder:text-slate-600 shadow-xl backdrop-blur-md transition-all focus:bg-slate-900"
-          />
-          <button type="submit" disabled={!input.trim() || isTyping} className="absolute right-2 top-2 p-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl text-white disabled:opacity-50 disabled:bg-transparent transition-all hover:scale-105 active:scale-95 shadow-lg">
-             <Send size={18} />
-          </button>
-       </form>
-    </div>
-  );
-};
-
-const FilesView = ({ user }: { user: User }) => {
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [category, setCategory] = useState<'all' | 'cours' | 'td' | 'examen'>('all');
-  const [showUpload, setShowUpload] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newCategory, setNewCategory] = useState<'cours' | 'td' | 'examen' | 'autre'>('cours');
-  const [newType, setNewType] = useState("PDF");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-
-  const isAdminOrDelegate = user.role === 'admin' || user.role === 'delegate';
-
-  useEffect(() => { return dbService.subscribeToResources(setResources); }, []);
-  const filtered = category === 'all' ? resources : resources.filter(r => r.category === category);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setSelectedFile(file);
-      // Détection auto de l'extension
-      const ext = file.name.split('.').pop();
-      if (ext) setNewType(ext.toUpperCase());
-    }
-  };
-
-  const handleAdd = async (e: React.FormEvent) => {
-     e.preventDefault();
-     if (!selectedFile) {
-        alert("Veuillez sélectionner un fichier à uploader.");
-        return;
-     }
-     
-     // Limite de taille pour éviter de surcharger le localStorage (10MB)
-     if (selectedFile.size > MAX_FILE_SIZE) {
-        alert("Fichier trop volumineux (Max 10MB pour le stockage local).");
-        return;
-     }
-
-     const reader = new FileReader();
-     reader.onloadend = async () => {
-         const base64 = reader.result as string;
-         
-         await dbService.addResource({ 
-            title: newTitle, 
-            category: newCategory, 
-            type: newType, 
-            size: (selectedFile.size / 1024).toFixed(0) + ' KB', 
-            date: Date.now(), 
-            author: user.name, 
-            url: base64 // Stockage direct en base64
-         });
-         
-         setShowUpload(false); 
-         setNewTitle(""); 
-         setSelectedFile(null);
-     };
-     reader.readAsDataURL(selectedFile);
-  };
-  
-  const handleDelete = async (id: string) => { if(confirm("Supprimer ?")) await dbService.deleteResource(id); };
-
-  return (
-    <div className="space-y-6 pb-20">
-       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-          {['all', 'cours', 'td', 'examen'].map(c => (
-             <button key={c} onClick={() => setCategory(c as any)} className={`px-5 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-all border ${category === c ? 'bg-amber-500/20 text-amber-400 border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.2)]' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}>
-               {c === 'all' ? 'Tout' : c}
-             </button>
-          ))}
-       </div>
-
-       {isAdminOrDelegate && (
-          <button onClick={() => setShowUpload(!showUpload)} className="w-full py-4 border border-dashed border-amber-500/30 rounded-[2rem] flex items-center justify-center gap-2 text-amber-500/70 hover:text-amber-400 hover:border-amber-500/60 hover:bg-amber-500/5 transition-all group shadow-lg">
-             <PlusCircle size={18} /> <span className="text-xs font-bold uppercase tracking-widest">Ajouter un document (Admin)</span>
-          </button>
-       )}
-
-       {showUpload && (
-          <form onSubmit={handleAdd} className="glass p-6 rounded-[2rem] space-y-4 animate-fade-in border border-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.1)]">
-             <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Titre du document" className="w-full bg-slate-900/50 rounded-xl px-4 py-3 text-sm text-white border border-slate-700" required />
-             
-             <div className="relative border border-dashed border-slate-600 rounded-xl p-4 flex flex-col items-center justify-center hover:bg-white/5 transition-colors cursor-pointer group">
-                <input type="file" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" required />
-                <UploadCloud size={24} className="text-slate-500 mb-2 group-hover:text-amber-400" />
-                <p className="text-xs text-slate-400 font-medium">{selectedFile ? selectedFile.name : "Cliquez pour sélectionner un fichier"}</p>
-                <p className="text-[9px] text-slate-600 uppercase mt-1">Max 10MB</p>
-             </div>
-
-             <div className="flex gap-3">
-                <select value={newCategory} onChange={e => setNewCategory(e.target.value as any)} className="bg-slate-900/50 rounded-xl px-4 py-3 text-xs text-slate-300 border border-slate-700 outline-none">
-                   <option value="cours">Cours</option><option value="td">TD</option><option value="examen">Examen</option><option value="autre">Autre</option>
-                </select>
-                <input type="text" value={newType} onChange={e => setNewType(e.target.value)} placeholder="Type (auto)" className="flex-1 bg-slate-900/50 rounded-xl px-4 py-3 text-xs text-white border border-slate-700" />
-             </div>
-             <button type="submit" className="w-full bg-gradient-to-r from-amber-500 to-orange-600 py-3 rounded-xl text-xs font-bold uppercase text-white shadow-lg hover:scale-[1.02] transition-transform">Valider & Uploader</button>
-          </form>
-       )}
-
-       <div className="grid gap-3">
-          {filtered.map(r => (
-             <div key={r.id} className="glass p-4 rounded-2xl flex items-center justify-between group hover:bg-white/5 transition-colors border border-white/5 hover:border-amber-500/20">
-                <div className="flex items-center gap-4">
-                   <div className="w-12 h-12 rounded-xl bg-slate-900 flex items-center justify-center text-amber-500 font-black text-[10px] border border-amber-500/20 shadow-inner">
-                      {r.type}
-                   </div>
-                   <div>
-                      <h4 className="font-bold text-slate-200 text-sm">{r.title}</h4>
-                      <p className="text-[9px] text-slate-500 uppercase tracking-wide mt-1 flex items-center gap-1">
-                        <UserIcon size={10} /> {r.author} <span className="text-slate-700">•</span> {new Date(r.date).toLocaleDateString()}
-                      </p>
-                   </div>
-                </div>
-                <div className="flex gap-2">
-                   <a href={r.url} download={r.title} className="p-2.5 bg-slate-800 rounded-xl text-slate-400 hover:text-white hover:bg-amber-600 transition-all shadow-md"><Download size={16} /></a>
-                   {isAdminOrDelegate && <button onClick={() => handleDelete(r.id)} className="p-2.5 bg-slate-800 rounded-xl text-slate-400 hover:text-red-400 transition-colors"><Trash2 size={16} /></button>}
-                </div>
-             </div>
-          ))}
-       </div>
-    </div>
-  );
-};
-
-interface Card { id: number; content: string; type: 'hanzi' | 'def'; pairId: string; isFlipped: boolean; isMatched: boolean; }
-
-const QuizView = () => {
-  const [viewMode, setViewMode] = useState<'menu' | 'quiz' | 'memory'>('menu');
-  const [topic, setTopic] = useState("");
-  // Quiz
-  const [questions, setQuestions] = useState<QuizQuestion[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [score, setScore] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [showResult, setShowResult] = useState(false);
-  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [isAnswerChecked, setIsAnswerChecked] = useState(false);
-  // Memory
-  const [cards, setCards] = useState<Card[]>([]);
-  const [flippedIndices, setFlippedIndices] = useState<number[]>([]);
-  const [timer, setTimer] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-
-  useEffect(() => { let interval: any; if (isTimerRunning) interval = setInterval(() => setTimer(t => t + 1), 1000); return () => clearInterval(interval); }, [isTimerRunning]);
-
-  const startQuiz = async (e: React.FormEvent) => {
-     e.preventDefault(); if (!topic) return; setLoading(true);
-     const qs = await geminiService.generateQuiz(topic);
-     if (qs.length > 0) { setQuestions(qs); setCurrentIndex(0); setScore(0); setShowResult(false); setSelectedAnswer(null); setIsAnswerChecked(false); setViewMode('quiz'); }
-     setLoading(false);
-  };
-
-  const startMemory = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!topic) return; setLoading(true);
-    const pairs = await geminiService.generateMemoryPairs(topic);
-    if (pairs.length > 0) {
-      const deck: Card[] = [];
-      pairs.forEach((p, idx) => {
-        deck.push({ id: idx * 2, content: p.hanzi, type: 'hanzi', pairId: p.id, isFlipped: false, isMatched: false });
-        deck.push({ id: idx * 2 + 1, content: `${p.pinyin}\n${p.translation}`, type: 'def', pairId: p.id, isFlipped: false, isMatched: false });
-      });
-      for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
-      setCards(deck); setTimer(0); setIsTimerRunning(true); setFlippedIndices([]); setViewMode('memory');
-    }
-    setLoading(false);
-  };
-
-  const handleMemoryClick = (index: number) => {
-    if (flippedIndices.length >= 2 || cards[index].isFlipped || cards[index].isMatched) return;
-    const newCards = [...cards]; newCards[index].isFlipped = true; setCards(newCards);
-    const newFlipped = [...flippedIndices, index]; setFlippedIndices(newFlipped);
-    if (newFlipped.length === 2) {
-      const [idx1, idx2] = newFlipped;
-      if (newCards[idx1].pairId === newCards[idx2].pairId) {
-        setTimeout(() => {
-          newCards[idx1].isMatched = true; newCards[idx2].isMatched = true; setCards([...newCards]); setFlippedIndices([]);
-          if (newCards.every(c => c.isMatched)) setIsTimerRunning(false);
-        }, 500);
-      } else {
-        setTimeout(() => { newCards[idx1].isFlipped = false; newCards[idx2].isFlipped = false; setCards([...newCards]); setFlippedIndices([]); }, 1000);
-      }
-    }
-  };
-
-  const handleQuizAnswer = (index: number) => {
-     if (isAnswerChecked) return; setSelectedAnswer(index); setIsAnswerChecked(true);
-     if (index === questions[currentIndex].correctAnswer) setScore(s => s + 1);
-  };
-
-  const nextQuestion = () => {
-     if (currentIndex < questions.length - 1) { setCurrentIndex(c => c + 1); setSelectedAnswer(null); setIsAnswerChecked(false); } 
-     else setShowResult(true);
-  };
-
-  const resetGame = () => { setViewMode('menu'); setTopic(""); };
-
-  if (loading) return (
-     <div className="flex flex-col items-center justify-center h-64 space-y-6">
-        <div className="relative">
-            <div className="w-16 h-16 border-4 border-slate-800 border-t-violet-500 rounded-full animate-spin"></div>
-            <div className="absolute inset-0 flex items-center justify-center text-xl">🐲</div>
-        </div>
-        <p className="text-xs font-bold uppercase tracking-widest text-violet-500 animate-pulse">Consultation des archives...</p>
-     </div>
-  );
-
-  if (viewMode === 'menu') {
-    return (
-      <div className="space-y-8 pt-6 animate-fade-in">
-        <div className="text-center space-y-2 mb-8">
-           <div className="inline-block p-4 rounded-full bg-slate-900 border border-white/5 shadow-2xl mb-2">
-              <Gamepad2 className="text-violet-500" size={32} />
-           </div>
-           <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-fuchsia-400 tracking-tight">Arcade</h2>
-           <p className="text-slate-400 text-sm font-medium">Entraînement cognitif augmenté</p>
-        </div>
-
-        <div className="grid gap-6">
-          <div className="glass p-8 rounded-[2rem] border border-white/5 hover:border-violet-500/30 transition-all group hover:shadow-[0_0_20px_rgba(139,92,246,0.15)]">
-             <div className="flex justify-between items-start mb-4">
-                 <div className="p-3 bg-violet-500/10 rounded-2xl text-violet-400 group-hover:bg-violet-500 group-hover:text-white transition-colors"><ListChecks size={24} /></div>
-             </div>
-             <h3 className="text-xl font-bold text-white mb-2">Quiz Rapide</h3>
-             <p className="text-sm text-slate-400 mb-6 leading-relaxed">Génération procédurale de QCM. Testez vos connaissances grammaticales.</p>
-             <form onSubmit={startQuiz} className="flex gap-3">
-                <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Sujet (ex: Verbes)" className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-1 focus:ring-violet-500/40" required />
-                <button type="submit" className="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white px-6 rounded-xl font-bold shadow-lg shadow-violet-900/20 transition-all transform active:scale-95">Go</button>
-             </form>
-          </div>
-
-          <div className="glass p-8 rounded-[2rem] border border-white/5 hover:border-emerald-500/30 transition-all group relative overflow-hidden hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]">
-             <div className="absolute -right-10 -top-10 opacity-5"><Grid3X3 size={200} /></div>
-             <div className="flex justify-between items-start mb-4">
-                 <div className="p-3 bg-emerald-500/10 rounded-2xl text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-colors"><Grid3X3 size={24} /></div>
-             </div>
-             <h3 className="text-xl font-bold text-white mb-2">Mémoire Impériale</h3>
-             <p className="text-sm text-slate-400 mb-6 leading-relaxed">Association Hanzi-Définition contre la montre. Améliorez votre rétention visuelle.</p>
-             <form onSubmit={startMemory} className="flex gap-3 relative z-10">
-                <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Thème (ex: Famille)" className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/40" required />
-                <button type="submit" className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-6 rounded-xl font-bold shadow-lg shadow-emerald-900/20 transition-all transform active:scale-95">Jouer</button>
-             </form>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (viewMode === 'memory') {
-    const isVictory = cards.length > 0 && cards.every(c => c.isMatched);
-    if (isVictory) return (
-       <div className="text-center space-y-8 py-20 animate-fade-in">
-          <div className="w-32 h-32 bg-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-[0_0_50px_rgba(16,185,129,0.4)] animate-bounce">
-             <span className="text-6xl">🀄️</span>
-          </div>
-          <div>
-             <h2 className="text-4xl font-extrabold text-white mb-2">Victoire !</h2>
-             <div className="inline-block px-6 py-2 rounded-full bg-slate-800 border border-emerald-500/30 text-emerald-400 font-mono text-xl">{timer}s</div>
-          </div>
-          <button onClick={resetGame} className="px-10 py-4 bg-white text-black rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-slate-200 transition-colors shadow-xl">Retour</button>
-       </div>
-    );
-
-    return (
-      <div className="pb-24 space-y-6 animate-fade-in">
-        <div className="flex justify-between items-center bg-slate-900/50 p-4 rounded-2xl border border-white/5 backdrop-blur-md sticky top-20 z-20 shadow-lg">
-          <button onClick={resetGame} className="text-slate-400 hover:text-white text-xs font-bold uppercase flex items-center gap-2"><ChevronRight className="rotate-180" size={14} /> Abandonner</button>
-          <div className="flex items-center gap-2 text-emerald-400 font-mono font-bold text-lg"><Timer size={18} /> {timer}s</div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          {cards.map((card, index) => (
-            <button
-              key={card.id}
-              onClick={() => handleMemoryClick(index)}
-              className={`aspect-[3/4] rounded-xl flex items-center justify-center p-2 text-center transition-all duration-500 transform-style-3d ${
-                card.isFlipped || card.isMatched ? 'rotate-y-180' : ''
-              } ${card.isMatched ? 'opacity-0 scale-90 pointer-events-none delay-500' : ''}`}
-              style={{ perspective: '1000px' }}
-            >
-               <div className={`w-full h-full rounded-xl flex items-center justify-center shadow-xl transition-all ${card.isFlipped || card.isMatched ? 'tile-card' : 'tile-card-back'}`}>
-                  {card.isFlipped || card.isMatched ? (
-                    <span className={`${card.type === 'hanzi' ? 'text-3xl font-serif text-slate-800' : 'text-xs font-bold text-slate-600 whitespace-pre-line leading-tight'}`}>{card.content}</span>
-                  ) : (
-                    <span className="text-2xl opacity-40 mix-blend-overlay">🐲</span>
-                  )}
-               </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Quiz Mode Display
-  if (showResult) return (
-     <div className="text-center space-y-8 py-20 animate-fade-in">
-        <div className="w-32 h-32 bg-purple-600 rounded-full flex items-center justify-center mx-auto shadow-[0_0_50px_rgba(147,51,234,0.4)]">
-           <span className="text-6xl">🏆</span>
-        </div>
-        <div>
-           <h2 className="text-3xl font-black text-white">Session Terminée</h2>
-           <p className="text-slate-400 mt-2 text-lg">Score Final : <span className="text-purple-400 font-bold">{score} / {questions.length}</span></p>
-        </div>
-        <button onClick={resetGame} className="px-10 py-4 bg-white text-black rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-slate-200 transition-colors">Terminer</button>
-     </div>
-  );
-
-  const q = questions[currentIndex];
-  return (
-     <div className="space-y-8 animate-fade-in pb-24">
-        <div className="flex justify-between items-center px-2">
-           <button onClick={resetGame} className="p-2 bg-slate-800 rounded-full hover:bg-white text-slate-400 hover:text-black transition-all"><X size={16} /></button>
-           <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Question {currentIndex + 1} / {questions.length}</span>
-        </div>
-        <div className="glass p-8 rounded-[2rem] border border-white/5 relative overflow-hidden shadow-2xl">
-           <div className="absolute top-0 left-0 h-1 bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-500" style={{ width: `${((currentIndex + 1) / questions.length) * 100}%` }} />
-           <h3 className="text-xl md:text-2xl font-bold text-white leading-relaxed">{q.question}</h3>
-        </div>
-        <div className="grid gap-3">
-           {q.options.map((opt, idx) => {
-              let style = "bg-slate-900/40 border-slate-800 text-slate-300 hover:bg-white/5 hover:border-slate-600";
-              if (isAnswerChecked) {
-                 if (idx === q.correctAnswer) style = "bg-emerald-500/20 border-emerald-500 text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.1)]";
-                 else if (idx === selectedAnswer) style = "bg-red-500/20 border-red-500 text-red-400";
-                 else style = "opacity-40 bg-slate-900/20 border-transparent";
-              }
-              return (
-                 <button key={idx} onClick={() => handleQuizAnswer(idx)} disabled={isAnswerChecked} className={`w-full p-5 rounded-2xl border text-left text-sm font-medium transition-all ${style} flex items-center gap-4`}>
-                    <div className="w-6 h-6 rounded-full border border-current flex items-center justify-center text-[10px] font-bold opacity-60">{String.fromCharCode(65 + idx)}</div>
-                    {opt}
-                 </button>
-              );
-           })}
-        </div>
-        {isAnswerChecked && (
-           <div className="fixed bottom-24 left-4 right-4 animate-fade-in">
-              <div className="glass-dark p-4 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-xl flex items-center justify-between gap-4 max-w-2xl mx-auto">
-                 <div className="text-xs text-slate-300 pl-2 border-l-2 border-emerald-500"><span className="font-bold text-emerald-400 block mb-0.5">Réponse :</span>{q.explanation}</div>
-                 <button onClick={nextQuestion} className="h-10 w-10 bg-white rounded-full flex items-center justify-center text-black hover:scale-110 transition-transform shadow-lg shrink-0"><ChevronRight size={20} /></button>
-              </div>
-           </div>
-        )}
-     </div>
-  );
-};
-
-const ProfileView = ({ user, onLogout, onUpdateAvatar, onReset }: { user: User, onLogout: () => void, onUpdateAvatar: (url: string) => void, onReset: () => void }) => {
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (file) { if(file.size > MAX_FILE_SIZE) { alert("Image trop lourde (Max 10MB)"); return; }
-      const reader = new FileReader(); reader.onloadend = () => { const result = reader.result as string; onUpdateAvatar(result); }; reader.readAsDataURL(file); }
-  };
-
-  return (
-    <div className="space-y-8 animate-fade-in pt-6">
-       <div className="text-center relative">
-          <div className="relative inline-block group">
-             <UserAvatar avatar={user.avatar} size="xl" className="border-4 border-slate-950 shadow-2xl relative z-10" role={user.role} />
-             <button 
-                onClick={() => fileRef.current?.click()}
-                className="absolute bottom-2 right-2 p-2 bg-pink-500 rounded-full text-white shadow-lg hover:bg-pink-400 transition-all z-20 group-hover:scale-110"
-             >
-                <Camera size={16} />
-             </button>
-             <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={handleAvatarChange} />
-          </div>
-          
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-pink-500/20 blur-xl rounded-full z-0 animate-pulse"></div>
-          <div className="mt-4">
-             <h2 className="text-2xl font-black text-white tracking-tight">{user.name}</h2>
-             <div className="flex items-center justify-center gap-2 mt-2">
-                <span className="px-3 py-1 rounded-full bg-slate-800 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-pink-400">{user.role}</span>
-                <span className="px-3 py-1 rounded-full bg-slate-800 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-slate-400">{user.uid}</span>
-             </div>
-          </div>
-       </div>
-
-       <div className="glass rounded-[2.5rem] overflow-hidden border border-white/5 shadow-2xl">
-          <div className="p-8 space-y-6">
-             {/* SECTION MASQUÉE : Mémoire Cognitive (IA) */}
-             
-             <div className="flex items-center gap-4">
-                <div className="p-3 bg-slate-800 rounded-2xl text-slate-400"><ShieldAlert size={24} /></div>
-                <div>
-                   <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Sécurité</p>
-                   <p className="text-white font-mono text-sm">PIN : ••••</p>
-                </div>
-             </div>
-          </div>
-          <div className="bg-white/5 p-2"></div>
-       </div>
-
-       <div className="grid gap-3">
-          <button onClick={onLogout} className="w-full p-5 glass rounded-[2rem] flex items-center justify-between group hover:bg-red-500/5 hover:border-red-500/20 transition-all border border-white/5">
-             <span className="font-bold text-slate-300 group-hover:text-red-400 transition-colors pl-2">Se Déconnecter</span>
-             <div className="p-2 bg-slate-800 rounded-full text-slate-500 group-hover:text-red-400 group-hover:bg-red-500/10 transition-all"><LogOut size={18} /></div>
-          </button>
-          
-          <button onClick={onReset} className="w-full py-4 text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-red-500 transition-colors flex items-center justify-center gap-2 opacity-60 hover:opacity-100">
-             <RefreshCw size={12} /> Reset System
-          </button>
-       </div>
-    </div>
-  );
-};
-
-export default App;
+}
+
+const NavBtn = ({ active, icon, onClick, color }: any) => (
+  <button onClick={onClick} className={`transition-all ${active ? `${color} scale-125` : 'text-slate-500 hover:text-slate-300'}`}>{icon}</button>
+);
