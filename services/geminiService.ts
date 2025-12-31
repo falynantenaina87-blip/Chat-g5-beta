@@ -68,7 +68,7 @@ export const geminiService = {
     try {
       const resp = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: "Génère un proverbe chinois (Chengyu) avec Pinyin, traduction française et un conseil.",
+        contents: "Génère un proverbe chinois (Chengyu) inspirant avec Pinyin, traduction française et un conseil pour un étudiant.",
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -87,6 +87,34 @@ export const geminiService = {
       return JSON.parse(resp.text || "{}");
     } catch (e) {
       return null;
+    }
+  },
+
+  async generateQuiz(topic: string = "Grammaire et Vocabulaire HSK1"): Promise<QuizQuestion[]> {
+    try {
+      const resp = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Génère 3 questions QCM de niveau L1 Chinois sur le thème : ${topic}.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING },
+                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                correctAnswer: { type: Type.INTEGER, description: "Index 0-3 de la bonne réponse" },
+                explanation: { type: Type.STRING }
+              },
+              required: ["question", "options", "correctAnswer", "explanation"]
+            }
+          }
+        }
+      });
+      return JSON.parse(resp.text || "[]");
+    } catch (e) {
+      return [];
     }
   }
 };
